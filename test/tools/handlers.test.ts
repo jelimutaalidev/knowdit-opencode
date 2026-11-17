@@ -103,8 +103,11 @@ test("progress reporter writes JSONL and forwards updates to the tool UI", async
   const line = JSON.parse(readFileSync(logPath, "utf8").trim()) as Record<string, unknown>;
   assert.equal(line.stage, "semantics");
   assert.equal(line.contest, 453);
+  assert.equal(line.source, "knowdit");
   assert.equal(typeof line.at, "string");
-  assert.deepEqual(seen, [{ stage: "semantics", detail: "extracting", contest: 453 }]);
+  assert.deepEqual(seen, [
+    { source: "knowdit", stage: "semantics", detail: "extracting", contest: 453 },
+  ]);
 });
 
 test("registers all five tools in the knowdit namespace", () => {

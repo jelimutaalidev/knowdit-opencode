@@ -10,6 +10,7 @@ import { fileCache } from "../llm/cache.ts";
 import { createLlmCaller, isModelLimitError } from "../llm/caller.ts";
 import type { GenerateFn, ModelRef } from "../llm/types.ts";
 import { buildKg } from "../pipeline/build.ts";
+import { markKnowditProgress } from "../progress-events.ts";
 import { queryFindings, queryLinks, querySemantics } from "../query.ts";
 import type { ToolHandler } from "../register.ts";
 import { readStats } from "../stats.ts";
@@ -77,16 +78,17 @@ export function createProgressReporter(opts: {
   sink?: (update: Record<string, unknown>) => void | Promise<void>;
 }): (update: Record<string, unknown>) => Promise<void> {
   return async (update) => {
+    const marked = markKnowditProgress(update);
     try {
       mkdirSync(dirname(opts.logPath), { recursive: true });
       appendFileSync(
         opts.logPath,
-        `${JSON.stringify({ at: new Date().toISOString(), ...update })}\n`,
+        `${JSON.stringify({ at: new Date().toISOString(), ...marked })}\n`,
       );
     } catch {
       // Progress reporting is best-effort.
     }
-    if (opts.sink) await opts.sink(update);
+    if (opts.sink) await opts.sink(marked);
   };
 }
 
