@@ -1,17 +1,47 @@
 import { DEFI_CATEGORIES } from "./categories.ts";
-import { FINDING_TAXONOMY } from "./taxonomy.ts";
+import { FINDING_TAXONOMY, type FindingTaxonomyEntry } from "./taxonomy.ts";
 
 export type Severity = "High" | "Medium" | "Low";
 
 const SEVERITIES: readonly Severity[] = ["High", "Medium", "Low"];
 
-export function validateTaxonomyPair(category: string, subcategory: string): string | null {
-  const trimmed = subcategory.trim();
-  const match = FINDING_TAXONOMY.find(
-    (entry) => entry.category === category && entry.subcategory === trimmed,
+/**
+ * Mirror the reference key: ASCII alphanumerics lowercased, every other run
+ * collapsed to a single space.
+ */
+export function normalizeTaxonomyKey(text: string): string {
+  let out = "";
+  let previousWasSeparator = false;
+  for (const char of text) {
+    if (/[A-Za-z0-9]/.test(char)) {
+      out += char.toLowerCase();
+      previousWasSeparator = false;
+    } else if (!previousWasSeparator) {
+      out += " ";
+      previousWasSeparator = true;
+    }
+  }
+  return out.trim().split(/\s+/).join(" ");
+}
+
+export function resolveTaxonomyEntry(
+  category: string,
+  subcategory: string,
+): FindingTaxonomyEntry | null {
+  const categoryKey = normalizeTaxonomyKey(category);
+  const subcategoryKey = normalizeTaxonomyKey(subcategory);
+  return (
+    FINDING_TAXONOMY.find(
+      (entry) =>
+        normalizeTaxonomyKey(entry.category) === categoryKey &&
+        normalizeTaxonomyKey(entry.subcategory) === subcategoryKey,
+    ) ?? null
   );
-  if (match) return null;
-  return `unknown subcategory '${trimmed}' for category '${category}'`;
+}
+
+export function validateTaxonomyPair(category: string, subcategory: string): string | null {
+  if (resolveTaxonomyEntry(category, subcategory)) return null;
+  return `unknown subcategory '${subcategory.trim()}' for category '${category}'`;
 }
 
 function normalizeCategory(value: string): string {
