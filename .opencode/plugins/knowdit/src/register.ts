@@ -34,9 +34,44 @@ export const TOOL_SCHEMAS: Record<string, unknown> = {
     },
     additionalProperties: false,
   },
-  kg_build: { type: "object", additionalProperties: false },
+  kg_build: {
+    type: "object",
+    properties: {
+      c4Ids: {
+        type: "array",
+        items: { type: "number" },
+        description: "C4 contest ids to build (defaults to every contest in the manifest)",
+      },
+      force: {
+        type: "boolean",
+        description: "Reset and rebuild these contests; rejected once merge rows exist",
+      },
+      resetAll: { type: "boolean", description: "Clear the KG and journal before building" },
+    },
+    additionalProperties: false,
+  },
   kg_status: { type: "object", additionalProperties: false },
-  kg_query: { type: "object", additionalProperties: false },
+  kg_query: {
+    type: "object",
+    properties: {
+      kind: { type: "string", enum: ["semantic", "finding", "link"] },
+      q: { type: "string", description: "Substring matched against the row's text fields" },
+      category: {
+        type: "string",
+        description: "DeFi category for semantics, vulnerability category for findings",
+      },
+      severity: { type: "string", enum: ["High", "Medium", "Low"] },
+      strength: { type: "string", enum: ["High", "Medium", "Low"] },
+      findingId: { type: "number" },
+      semanticId: { type: "number" },
+      findingSeverity: { type: "string", enum: ["High", "Medium", "Low"] },
+      canonicalOnly: { type: "boolean", description: "Exclude rows folded into a canonical" },
+      unlinkedOnly: { type: "boolean", description: "Only semantics with no finding link" },
+      limit: { type: "number", minimum: 1, maximum: 500 },
+    },
+    required: ["kind"],
+    additionalProperties: false,
+  },
   kg_stats: { type: "object", additionalProperties: false },
 };
 
