@@ -562,3 +562,21 @@ Fase 1 selesai bila, untuk 12 kontes:
 6. `knowdit_kg_query` bisa menjawab tiga pertanyaan contoh: “semantic apa yang
    paling sering muncul bersama finding High?”, “finding apa yang bertaut ke
    semantic kategori Lending?”, “berapa canonical semantic tanpa finding?”
+
+### 13.1 Status implementasi (parsial, 2026-11-17)
+
+Batch 12 kontes belum selesai; build berhenti karena kuota model gratis habis
+dan dilanjutkan dengan `kg_build` yang sama setelah kuota pulih.
+
+- Dataset: 12 kontes, 13.983 LOC, 62 High + 99 Medium, 0 trim fallback.
+- C4 453: 24 findings, 48 links, finalize lolos.
+- C4 316: 23 findings, integrity gate lolos.
+- C4 331: categorize/semantics/findings selesai (12 findings, 7 semantik);
+  unit `link` menunggu retry.
+- Total KG parsial: 3 project, 20 semantik, 59 findings, 91 links
+  (80 in-project, 11 cross-project).
+- `scripts/verify-compat.ts` pada DB parsial: `compat OK`.
+
+Progress `kg_build` juga tampil sebagai satu baris di atas composer TUI
+(`tui.tsx`), memakai penanda `source: "knowdit"` pada setiap update dan hilang
+saat tool selesai. `data/progress.log` tetap menjadi riwayat JSONL.
