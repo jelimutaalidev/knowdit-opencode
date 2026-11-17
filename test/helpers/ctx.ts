@@ -27,10 +27,11 @@ function scriptedValue(prompt: string, script: FakeScript): unknown {
       categories: script.categories ?? [],
     };
   }
-  if (prompt.includes('"pairs"')) {
+  if (prompt.includes('"semantic_indices"')) {
     return {
-      pairs: (script.links ?? []).map((link) => ({
+      links: (script.links ?? []).map((link) => ({
         finding_index: link.findingIndex,
+        reasoning: "fake in-project link",
         semantic_indices: link.semanticIndices,
       })),
     };
