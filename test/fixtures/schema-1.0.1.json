@@ -1,0 +1,447 @@
+{
+  "version": "1.0.1",
+  "tables": {
+    "audit_finding": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "title",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "severity",
+        "type": "varchar(16)",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "root_cause",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "description",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "patterns",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "exploits",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "audit_finding_category": [
+      {
+        "name": "audit_finding_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "finding_category_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 2,
+        "dflt_value": null
+      }
+    ],
+    "category": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "name",
+        "type": "varchar(32)",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "finding_category": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "category",
+        "type": "varchar(32)",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "name",
+        "type": "varchar",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "description",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "finding_link_status": [
+      {
+        "name": "audit_finding_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      }
+    ],
+    "finding_merge": [
+      {
+        "name": "from_finding_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "to_finding_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 2,
+        "dflt_value": null
+      },
+      {
+        "name": "appended_description",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "appended_patterns",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "appended_exploits",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "merge_status": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "source_key",
+        "type": "varchar",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "native_sem_ceiling",
+        "type": "INTEGER",
+        "notnull": 0,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "phase",
+        "type": "varchar(16)",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "operation_history": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "datetime",
+        "type": "timestamp_with_timezone_text",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "type",
+        "type": "varchar(32)",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "args",
+        "type": "json_text",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "pending_semantic": [
+      {
+        "name": "semantic_node_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      }
+    ],
+    "project": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "status",
+        "type": "varchar",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "project_category": [
+      {
+        "name": "project_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "category_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 2,
+        "dflt_value": null
+      }
+    ],
+    "project_finding": [
+      {
+        "name": "project_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "audit_finding_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 2,
+        "dflt_value": null
+      }
+    ],
+    "project_platform": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "project_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "platform_id",
+        "type": "varchar",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "project_semantic": [
+      {
+        "name": "project_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "semantic_node_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 2,
+        "dflt_value": null
+      }
+    ],
+    "semantic_finding_link": [
+      {
+        "name": "semantic_node_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "audit_finding_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 2,
+        "dflt_value": null
+      },
+      {
+        "name": "strength",
+        "type": "varchar(16)",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "evidence",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "semantic_function": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "semantic_node_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "function_name",
+        "type": "varchar",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "contract_path",
+        "type": "varchar",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "semantic_merge": [
+      {
+        "name": "from_semantic_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "to_semantic_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 2,
+        "dflt_value": null
+      },
+      {
+        "name": "appended_description",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ],
+    "semantic_node": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "pk": 1,
+        "dflt_value": null
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "definition",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "description",
+        "type": "TEXT",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      },
+      {
+        "name": "category",
+        "type": "varchar(32)",
+        "notnull": 1,
+        "pk": 0,
+        "dflt_value": null
+      }
+    ]
+  }
+}

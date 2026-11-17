@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Target kompatibilitas: **clone `/home/jey/Dev/knowdit` v1.0.1** — 18 tabel user, 14 kategori DeFi, 7 kategori kerentanan, 46 subkategori. Binary `knowdit` 2.0.1 di `~/.cargo/bin` **bukan** target.
+- Target kompatibilitas: **clone `/home/jey/Dev/knowdit` v1.0.1** — 18 tabel user, 14 kategori DeFi, 7 kategori kerentanan, 45 subkategori. Binary `knowdit` 2.0.1 di `~/.cargo/bin` **bukan** target.
 - Plugin entry: `.opencode/plugins/knowdit/index.ts`, `Plugin.define({ id: "knowdit", setup })`; namespace tool `knowdit`.
 - Tanpa dependensi runtime tambahan selain paket host `@opencode/plugin`; satu-satunya import host ada di `index.ts`.
 - TypeScript yang bisa di-strip Node: tanpa `enum`, tanpa parameter properties, tanpa `namespace`. Gunakan `type`, `interface`, `as const`.
@@ -298,12 +298,12 @@ Expected: FAIL — file fixture belum ada.
 
 - [ ] **Step 3: Tulis `scripts/reference-schema.sh`**
 
-Script harus: (a) membaca versi dari `Cargo.toml` workspace dan gagal bila bukan `1.0.1`; (b) `cargo build --release -p knowdit`; (c) menghapus DB scratch di `data/tmp/reference.sqlite`; (d) menjalankan `<repo>/target/release/knowdit learn --database-url "sqlite://<abs>?mode=rwc" init-db`; (e) `sqlite3 <db> .schema > .opencode/plugins/knowdit/src/db/schema.sql`; (f) menulis fixture JSON lewat `sqlite3 -json "select name from sqlite_master where type='table' and name not like 'sqlite_%'"` lalu `PRAGMA table_info` per tabel; (g) memverifikasi `select count(*) from category` = 14 dan `select count(*) from finding_category` = 46, gagal bila tidak.
+Script harus: (a) membaca versi dari `Cargo.toml` workspace dan gagal bila bukan `1.0.1`; (b) `cargo build --release -p knowdit`; (c) menghapus DB scratch di `data/tmp/reference.sqlite`; (d) menjalankan `<repo>/target/release/knowdit learn --database-url "sqlite://<abs>?mode=rwc" init-db`; (e) `sqlite3 <db> .schema > .opencode/plugins/knowdit/src/db/schema.sql`; (f) menulis fixture JSON lewat `sqlite3 -json "select name from sqlite_master where type='table' and name not like 'sqlite_%'"` lalu `PRAGMA table_info` per tabel; (g) memverifikasi `select count(*) from category` = 14 dan `select count(*) from finding_category` = 45, gagal bila tidak.
 
 - [ ] **Step 4: Jalankan script**
 
 Run: `bash scripts/reference-schema.sh`
-Expected: `wrote .opencode/plugins/knowdit/src/db/schema.sql (18 tables, 14 categories, 46 subcategories)`.
+Expected: `wrote .opencode/plugins/knowdit/src/db/schema.sql (18 tables, 14 categories, 45 subcategories)`.
 
 - [ ] **Step 5: Jalankan test, pastikan lulus**
 
@@ -331,7 +331,7 @@ git commit -m "feat: capture reference v1.0.1 schema as the compatibility contra
 
 **Interfaces:**
 - Consumes: tidak ada; `schema.sql` dibaca dari direktori modul ini (`.opencode/plugins/knowdit/src/db/schema.sql`).
-- Produces: `interface KgDb { exec(sql: string): void; all<T>(sql: string, params?: readonly unknown[]): T[]; get<T>(sql: string, params?: readonly unknown[]): T | undefined; run(sql: string, params?: readonly unknown[]): { changes: number; lastInsertRowid: number }; tx<T>(fn: () => T): T; close(): void }`; `openKg(path: string): Promise<KgDb>`; `seedReferenceTables(db: KgDb): void`; `const DEFI_CATEGORIES: readonly string[]` (14); `const VULN_CATEGORIES: readonly string[]` (7); `type TaxonomyEntry = { category: string; subcategory: string; description: string }`; `const FINDING_TAXONOMY: readonly TaxonomyEntry[]` (46). Taksonomi diisi lengkap di task ini; Task 8 hanya menambah validator dan test kekhususannya.
+- Produces: `interface KgDb { exec(sql: string): void; all<T>(sql: string, params?: readonly unknown[]): T[]; get<T>(sql: string, params?: readonly unknown[]): T | undefined; run(sql: string, params?: readonly unknown[]): { changes: number; lastInsertRowid: number }; tx<T>(fn: () => T): T; close(): void }`; `openKg(path: string): Promise<KgDb>`; `seedReferenceTables(db: KgDb): void`; `const DEFI_CATEGORIES: readonly string[]` (14); `const VULN_CATEGORIES: readonly string[]` (7); `type TaxonomyEntry = { category: string; subcategory: string; description: string }`; `const FINDING_TAXONOMY: readonly TaxonomyEntry[]` (45). Taksonomi diisi lengkap di task ini; Task 8 hanya menambah validator dan test kekhususannya.
 
 - [ ] **Step 1: Tulis test yang gagal**
 
@@ -346,7 +346,7 @@ import { openKg, seedReferenceTables } from "../../.opencode/plugins/knowdit/src
 
 const fixture = JSON.parse(readFileSync("test/fixtures/schema-1.0.1.json", "utf8"));
 
-test("applies the reference schema and seeds 14/7/46", async () => {
+test("applies the reference schema and seeds 14/7/45", async () => {
   const db = await openKg(join(mkdtempSync(join(tmpdir(), "kg-")), "kg.sqlite"));
   const tables = db.all<{ name: string }>(
     "select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name",
@@ -359,7 +359,7 @@ test("applies the reference schema and seeds 14/7/46", async () => {
   seedReferenceTables(db);
   seedReferenceTables(db);
   assert.equal(db.get<{ n: number }>("select count(*) n from category")!.n, 14);
-  assert.equal(db.get<{ n: number }>("select count(*) n from finding_category")!.n, 46);
+  assert.equal(db.get<{ n: number }>("select count(*) n from finding_category")!.n, 45);
   assert.equal(db.get<{ n: number }>("select count(distinct category) n from finding_category")!.n, 7);
   assert.throws(() => db.run(
     "insert into semantic_finding_link (semantic_node_id, audit_finding_id, strength, evidence) values (999, 999, 'High', 'x')",
@@ -379,7 +379,7 @@ Expected: FAIL — modul `client.ts` belum ada.
 
 `seed.ts` mengisi `category.name` dari `DEFI_CATEGORIES` dengan `insert or ignore` (kolomnya `UNIQUE`), lalu `finding_category(category, name, description)` dari `FINDING_TAXONOMY`. `finding_category` **tidak punya** constraint unik, jadi seed subkategori harus idempoten dengan `select 1 where exists` per `(category, name)` atau dengan membandingkan jumlah baris sebelum menyisipkan — `insert or ignore` saja akan menggandakan baris pada pemanggilan kedua.
 
-`taxonomy.ts` memuat 46 entri yang disalin **verbatim** dari `crates/knowdit-kg/src/vulnerability.rs` (`FINDING_TAXONOMY`), beserta `DEFI_CATEGORIES` dan `VULN_CATEGORIES` dari `crates/knowdit-kg-model/src/category.rs` dan `finding_category.rs`.
+`taxonomy.ts` memuat 45 entri yang disalin **verbatim** dari `crates/knowdit-kg/src/vulnerability.rs` (`FINDING_TAXONOMY`), beserta `DEFI_CATEGORIES` dan `VULN_CATEGORIES` dari `crates/knowdit-kg-model/src/category.rs` dan `finding_category.rs`.
 
 `test/helpers/db.ts` mengekspor `tempDb(): Promise<{ db: KgDb; path: string; cleanup: () => void }>` — membuat file sementara lewat `mkdtempSync`, memanggil `openKg` + `seedReferenceTables`, dan dipakai ulang oleh semua test pipeline. `schema.sql` hasil `.schema` memakai `CREATE TABLE IF NOT EXISTS`, jadi aman dijalankan pada DB baru maupun yang sudah ada.
 
@@ -733,11 +733,11 @@ import assert from "node:assert/strict";
 import { validateTaxonomyPair, isDefiCategory, isSeverity, maxSeverity } from "../../.opencode/plugins/knowdit/src/domain/validate.ts";
 import { FINDING_TAXONOMY, DEFI_CATEGORIES, VULN_CATEGORIES } from "../../.opencode/plugins/knowdit/src/domain/taxonomy.ts";
 
-test("taxonomy has 14 / 7 / 46 entries", () => {
+test("taxonomy has 14 / 7 / 45 entries", () => {
   assert.equal(DEFI_CATEGORIES.length, 14);
   assert.equal(VULN_CATEGORIES.length, 7);
-  assert.equal(FINDING_TAXONOMY.length, 46);
-  assert.equal(new Set(FINDING_TAXONOMY.map((e) => `${e.category}\u0000${e.subcategory}`)).size, 46);
+  assert.equal(FINDING_TAXONOMY.length, 45);
+  assert.equal(new Set(FINDING_TAXONOMY.map((e) => `${e.category}\u0000${e.subcategory}`)).size, 45);
 });
 
 test("accepts a known pair and rejects an invented one", () => {

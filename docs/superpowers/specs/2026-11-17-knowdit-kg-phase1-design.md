@@ -332,7 +332,7 @@ satu transaksi per kontes untuk merge, satu transaksi per batch untuk global lin
   menambahkannya akan mengubah prompt dan biaya secara signifikan.
 - Output per item: `title`, `severity`, `category`, `subcategory`, `root_cause`,
   `description`, `patterns`, `exploits`.
-- Validasi: pasangan `(category, subcategory)` harus ada di 46 entri taksonomi
+- Validasi: pasangan `(category, subcategory)` harus ada di 45 entri taksonomi
   (pakai validator yang sama dengan `validate_taxonomy_pair`); `severity` ∈
   {High, Medium, Low}; dedup berdasarkan `title` dalam proyek.
 - Tulis: `audit_finding` (raw), `audit_finding_category`, `project_finding`.
@@ -418,7 +418,7 @@ itu memeriksa bahwa `merge_status` tetap kosong setelah build.
 Aturan kompatibilitas:
 
 - Target kompatibilitas adalah **v1.0.1 dari clone `/home/jey/Dev/knowdit`**
-  (18 tabel, 46 subkategori, 14 kategori DeFi, 7 kategori kerentanan). Binary
+  (18 tabel, 45 subkategori, 14 kategori DeFi, 7 kategori kerentanan). Binary
   `knowdit` v2.0.1 yang terpasang di `~/.cargo/bin` **bukan** target: ia punya
   19 tabel dan men-seed 45 subkategori.
 - Nama tabel/kolom, tipe, dan `string_value` enum harus sama persis.
