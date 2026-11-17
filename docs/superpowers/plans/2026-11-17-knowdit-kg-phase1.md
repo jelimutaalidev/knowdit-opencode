@@ -787,7 +787,7 @@ git commit -m "feat: port taxonomy and domain validators"
 
 **Interfaces:**
 - Consumes: `DEFI_CATEGORIES`, `FINDING_TAXONOMY`.
-- Produces: `GENERAL_ROLE_SYSTEM: string`; `buildCategorizePrompt(categories: readonly string[]): string`; `buildExtractSemanticsPrompt(input: { chunk: string; schemaHint: string; categories: readonly string[] }): string`; `buildExtractFindingsPrompt(input: { chunk: string; schemaHint: string; categories: readonly string[] }): string`; `buildInProjectLinkPrompt(input: { categories: readonly string[]; semantics: string; findings: string }): string`; `buildMergePrompt(...)`; `buildGlobalLinkPrompt(...)`.
+- Produces: `GENERAL_ROLE_SYSTEM: string`; `buildCategorizePrompt(materials: string, categories?: readonly string[]): string`; `buildExtractSemanticsPrompt(input: { chunk: string; schemaHint: string; categories: readonly string[] }): string`; `buildExtractFindingsPrompt(input: { chunk: string; schemaHint: string; categories: readonly string[] }): string`; `buildInProjectLinkPrompt(input: { categories: readonly string[]; semantics: string; findings: string }): string`; `buildMergePrompt(...)`; `buildGlobalLinkPrompt(...)`.
 
 - [ ] **Step 1: Tulis test yang gagal**
 
