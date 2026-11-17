@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { openKg, seedReferenceTables } from "../db/client.ts";
 import { BATCH_LOCAL_IDS } from "../dataset/select.ts";
 import { prepareDataset } from "../dataset/prepare.ts";
@@ -67,6 +67,29 @@ function asBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+/**
+ * Mirror progress into a JSONL file so an operator can follow a long build
+ * with `tail -f data/progress.log` even when the client does not render live
+ * tool metadata. A logging failure must never abort the build.
+ */
+export function createProgressReporter(opts: {
+  logPath: string;
+  sink?: (update: Record<string, unknown>) => void | Promise<void>;
+}): (update: Record<string, unknown>) => Promise<void> {
+  return async (update) => {
+    try {
+      mkdirSync(dirname(opts.logPath), { recursive: true });
+      appendFileSync(
+        opts.logPath,
+        `${JSON.stringify({ at: new Date().toISOString(), ...update })}\n`,
+      );
+    } catch {
+      // Progress reporting is best-effort.
+    }
+    if (opts.sink) await opts.sink(update);
+  };
+}
+
 export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
   const p = paths(deps.dataDir);
 
@@ -116,6 +139,7 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
       const db = await openKg(p.kgPath);
       seedReferenceTables(db);
       const journal = await openJournal(p.journalPath);
+      const progressLog = join(deps.dataDir, "progress.log");
 
       try {
         const llm = createLlmCaller({
@@ -132,7 +156,7 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
           concurrency: 1,
           force: asBoolean(options.force),
           resetAll: asBoolean(options.resetAll),
-          onProgress: ctx.progress,
+          onProgress: createProgressReporter({ logPath: progressLog, sink: ctx.progress }),
           db,
           llm,
           journal,
@@ -144,6 +168,7 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
               ...result,
               kgPath: p.kgPath,
               journalPath: p.journalPath,
+              progressLog,
             },
             null,
             2,

@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { tempDb } from "../helpers/db.ts";
 import { readStats } from "../../.opencode/plugins/knowdit/src/stats.ts";
 import { registerKnowditTools } from "../../.opencode/plugins/knowdit/src/register.ts";
+import { createProgressReporter } from "../../.opencode/plugins/knowdit/src/tools/handlers.ts";
 import type { KgDb } from "../../.opencode/plugins/knowdit/src/db/client.ts";
 
 async function seededStats(): Promise<{ db: KgDb }> {
@@ -81,6 +85,26 @@ test("stats split in-project from cross links by evidence prefix", async () => {
   assert.equal(s.linksCross, 1);
   assert.equal(s.semanticsCanonical, 1);
   assert.equal(s.pendingSemantics, 1);
+});
+
+test("progress reporter writes JSONL and forwards updates to the tool UI", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "progress-"));
+  const logPath = join(dir, "progress.log");
+  const seen: Record<string, unknown>[] = [];
+  const report = createProgressReporter({
+    logPath,
+    sink: (update) => {
+      seen.push(update);
+    },
+  });
+
+  await report({ stage: "semantics", detail: "extracting", contest: 453 });
+
+  const line = JSON.parse(readFileSync(logPath, "utf8").trim()) as Record<string, unknown>;
+  assert.equal(line.stage, "semantics");
+  assert.equal(line.contest, 453);
+  assert.equal(typeof line.at, "string");
+  assert.deepEqual(seen, [{ stage: "semantics", detail: "extracting", contest: 453 }]);
 });
 
 test("registers all five tools in the knowdit namespace", () => {
