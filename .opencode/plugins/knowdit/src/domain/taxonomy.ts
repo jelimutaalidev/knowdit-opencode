@@ -231,3 +231,5 @@ export const FINDING_TAXONOMY: readonly TaxonomyEntry[] = [
     description: "delegatecall in a payable loop can multiply accounting effects or corrupt balance tracking.",
   },
 ];
+
+export { DEFI_CATEGORIES, VULN_CATEGORIES } from "./categories.ts";
