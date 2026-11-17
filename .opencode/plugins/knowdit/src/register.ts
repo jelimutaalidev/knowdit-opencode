@@ -22,7 +22,18 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
 };
 
 export const TOOL_SCHEMAS: Record<string, unknown> = {
-  dataset_prepare: { type: "object", additionalProperties: false },
+  dataset_prepare: {
+    type: "object",
+    properties: {
+      sourceRoot: { type: "string", description: "Dataset root (defaults to ~/c4-data/out_train)" },
+      localIds: {
+        type: "array",
+        items: { type: "number" },
+        description: "Local contest ids (defaults to the approved 12-contest batch)",
+      },
+    },
+    additionalProperties: false,
+  },
   kg_build: { type: "object", additionalProperties: false },
   kg_status: { type: "object", additionalProperties: false },
   kg_query: { type: "object", additionalProperties: false },

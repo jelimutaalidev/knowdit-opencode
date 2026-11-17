@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin";
+import { fileURLToPath } from "node:url";
 import { registerKnowditTools } from "./src/register.ts";
 import { buildHandlers } from "./src/tools/handlers.ts";
 import { createSessionGenerate, type ModelRef } from "./src/llm/session-transport.ts";
@@ -12,7 +13,7 @@ export default Plugin.define({
   id: "knowdit",
   async setup(ctx) {
     const model = (ctx.options as { model?: ModelRef } | undefined)?.model ?? DEFAULT_MODEL;
-    const dataDir = new URL("../data/", import.meta.url).pathname;
+    const dataDir = fileURLToPath(new URL("../../../data/", import.meta.url));
 
     await ctx.tool.transform((editor) => {
       registerKnowditTools(
