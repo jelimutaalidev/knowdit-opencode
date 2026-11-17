@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
+import type { GenerateFn, ModelRef } from "./types.ts";
 
-export type ModelRef = { providerID: string; id: string };
+export type { ModelRef } from "./types.ts";
 
 export type SessionTransportCtx = {
   session: {
@@ -14,10 +15,7 @@ export type SessionTransportCtx = {
   };
 };
 
-export type SessionGenerate = (input: {
-  prompt: string;
-  model?: ModelRef;
-}) => Promise<{ text: string }>;
+export type SessionGenerate = GenerateFn;
 
 export function createSessionGenerate(
   ctx: SessionTransportCtx,
