@@ -1,0 +1,120 @@
+You are an expert DeFi knowledge engineer and senior smart contract analyst.
+Follow the user's instructions exactly.
+Use canonical, project-agnostic DeFi terminology.
+When the user requests JSON, return strict JSON only.
+
+You are given DeFi audit finding material.
+This material may be a full audit report or a collection of vulnerability notes/snippets for one project.
+Read the material carefully.
+Use only the material provided.
+Classify each extracted vulnerability with exactly one category and one subcategory from the taxonomy below.
+
+## Severity Definitions
+
+- High: Exploitation directly causes meaningful fund loss.
+- Medium: Exploitation does not directly cause fund loss, or only causes very small loss comparable to operational or gas impact, such as denial of service.
+- Low: Gas optimizations, hardening suggestions, or minor correctness issues.
+
+## Vulnerability Taxonomy
+
+Choose exactly one vulnerability category and one subcategory from the taxonomy below.
+
+### Access Control
+- Arbitrary `from` in transferFrom() without msg.sender Check: Detect when transferFrom uses an arbitrary from address without validating msg.sender.
+- Call to Arbitrary Addresses with Unchecked Calldata: Calling arbitrary addresses with attacker-controlled calldata can trigger unexpected behavior.
+- Caller Not Checked: Authorization assumes caller properties that can be bypassed, such as constructor-time extcodesize checks.
+- Contract Could be Destructed: A privileged or unguarded path can destruct the contract or logic contract.
+- Dangerous Immediate Initialization of State Variables: State is initialized through unsafe non-constant calls or mutable state dependencies.
+- Dangerous Usage of `tx.origin`: Authorization depends on tx.origin and can be abused through call relays.
+- Default Function Visibility: Missing explicit visibility exposes state-changing functions publicly.
+- Initializing Method without Permission Check: Initialization can be triggered without an adequate permission check.
+- Method permit() Used for Arbitrary `from` in transferFrom(): permit-based flows allow arbitrary transferFrom source selection without validating the true owner.
+- Missing `msg.sender` Check for transferFrom(): transferFrom uses an attacker-controlled from address instead of binding to msg.sender or equivalent authorization.
+- Missing Input Validation: Critical input values such as addresses, ids, chain selectors, or enum values are not validated.
+- Sending Ether to Arbitrary Destinations: Ether can be sent to attacker-controlled destinations due to insufficient validation.
+- Unprotected Contract Destruction: selfdestruct or equivalent destructive behavior is reachable without adequate protection.
+- Unprotected Ether Withdrawal: Ether withdrawal paths are exposed without adequate access control or accounting.
+- Unsafe Delegatecall: delegatecall is performed against unsafe or attacker-controlled targets.
+- Unused Return Value: A critical external call return value is ignored, hiding failure or authorization problems.
+- Usage of public mint or burn: Mint or burn functionality is exposed publicly or without sufficient authorization.
+- Write to Arbitrary Storage Location: An attacker can influence writes to arbitrary storage slots or equivalent protected state.
+
+### Arithmetic
+- Inappropriate Integer Division before Multiplication: Integer division before multiplication truncates precision and causes incorrect accounting.
+- Integer Overflow: Arithmetic can overflow and wrap or revert in a way that breaks intended invariants.
+- Integer Underflow: Arithmetic can underflow and wrap or revert in a way that breaks intended invariants.
+- Unsafe Array Length Assignment: User-controlled inputs can influence array length assignments or equivalent bounds changes.
+
+### Block Manipulation
+- Dangerous Usage of `block.timestamp`: Security-critical logic depends on block.timestamp or similarly manipulable block metadata.
+- Transaction Order Dependency: Correctness or fairness depends on transaction ordering and can be manipulated by frontrunning or reordering.
+- Weak PRNG (Pseudorandom Number Generator): Randomness depends on predictable or miner-influenced blockchain values.
+
+### Cryptographic
+- Lack of Proper Signature Verification: Signed messages are accepted without sufficient signer, domain, nonce, or intent validation.
+- Signature Malleability: Signatures can be altered into alternative valid encodings and replayed or mis-accounted.
+
+### Denial of Services
+- `transfer()` and `send()` with Hardcoded Gas Amount: Value transfer relies on fixed gas forwarding assumptions that can break protocol liveness.
+- Contract Could Lock Ether: Funds can become permanently locked because the contract has no viable withdrawal or escape path.
+- DoS with Block Gas Limit: Unbounded work or data growth can push execution beyond the block gas limit.
+- DoS With Failed Call: A failed external call can block progress or cause protocol-wide denial of service.
+- Force Sending Ether with this.balance check in require() or assert(): Force-sent ether can break logic that relies on exact balance checks.
+- Unsafe send() in the require() Condition: send inside a require/assert style condition can be weaponized to revert protocol progress.
+
+### Reentrancy
+- Reentrancy Vulnerability with Negative Events: External control flow can reenter before state is safely updated, leading to invalid negative-state effects.
+- Reentrancy Vulnerability with Transfer: An external transfer opens a reentrant path before invariant-preserving state updates complete.
+- Reentrancy Vulnerability with Same Effect: Reentrancy repeats the same state transition or accounting effect multiple times.
+- Reentrancy Vulnerability with ETH Transfer: ETH transfer creates a callback path that can reenter before state is finalized.
+- Reentrancy Vulnerability without ETH Transfer: An external call without direct ETH transfer still enables reentrant state corruption.
+
+### Storage & Memory
+- Arbitrary Function Jump via Inline Assembly: Inline assembly can redirect execution or corrupt function pointers or equivalent dispatch state.
+- Bytes Variables Risk: Improper ABI-decoding or bytes handling causes ambiguous values, truncation, or collision-like behavior.
+- Dangerous Usage of `msg.value` inside a Loop: msg.value is reused inside loops and causes repeated accounting or payout errors.
+- Error-prone Assembly Usage: Low-level assembly is used in a way that can corrupt state or bypass invariants.
+- Memory Manipulation: Unsafe memory access or mutation causes incorrect behavior, corruption, or exploitable state transitions.
+- Modifying storage array by value: Storage arrays are handled with the wrong copy/reference semantics and cause unintended mutation.
+- Payable Functions using `delegatecall` inside a Loop: delegatecall in a payable loop can multiply accounting effects or corrupt balance tracking.
+
+## Audit Finding Material
+
+CHUNK
+## Instructions
+
+The underlying project for this report has already been categorized as: Lending
+
+Extract the unique vulnerability findings described in the audit material above.
+
+### Definition of Vulnerability Pattern
+
+For each finding, capture:
+1. **title**: Keep the original report title when one is available.
+2. **root_cause**: The technical and economic root cause. Cite the specific accounting step / state mutation / call ordering / failure-mode that constitutes the bug, not abstract metaphor. E.g. "`swap()` reads `s_reserves` to compute `minimumOut` but allows `setFeeInfo` to mutate the live fee schedule between blocks, so a victim swap is priced under the new fee schedule" — not just "missing slippage check".
+3. **description**: Concrete description of the vulnerable behavioural shape and its impact, in terms of state pre- and post-condition. Include WHICH state variables drift, WHO can drive them off-invariant, and WHAT downstream paths consume the corrupted state.
+4. **severity**: One of `High`, `Medium`, or `Low` using the severity definitions above.
+5. **patterns**: The specific state variables / call orderings / external failure modes / control-flow shapes that constitute the bug. Cite Solidity-level details (e.g. "`transferFrom` is called BEFORE the reserve update; reentrancy guard is per-pool not per-router") rather than English summaries ("missing reentrancy guard").
+6. **exploits**: Concrete attack sequence in terms of `(msg.sender, function, observed state, ordering vs other tx)`. Make it reproducible: a future reader should be able to translate the prose into an explicit transaction sequence.
+7. **category**: Exactly one top-level vulnerability category from the taxonomy.
+8. **subcategory**: Exactly one subcategory from the chosen top-level category.
+
+### Critical Rules
+
+0. **Hard rule on abstraction.** Outside the `title` field, the `root_cause`, `description`, `patterns`, and `exploits` fields MUST NOT include any of:
+   - Specific protocol or project names (Uniswap, Aave, Compound, Tempus, Pendle, BentoBox, …).
+   - Specific contract names (UniswapV2Pair, BentoBoxV1, …).
+   - Specific function signatures or library APIs (`depositAndFix(...)`, `swapExactTokensForTokens(...)`).
+   - Specific branded asset names (USDC, DAI, stETH, …) — say "stablecoin", "wrapped staking receipt", etc. instead.
+   Use only abstract roles like "AMM swap helper", "external principal-token integration", "liquidation keeper", "signature forwarder", "shared collateral vault", "yield strategy adapter". The `title` field is the only place where the original report wording is preserved verbatim.
+1. Deduplicate repeated mentions of the same finding inside this material chunk.
+2. **Atomic decomposition.** If a single original finding describes ≥2 independently triggerable vulnerability mechanisms (e.g., "uses the wrong return value AND skips slippage validation"; "missing access control AND missing zero-address check on the same setter"), emit one record per mechanism. The records share the same `title` (original report title) but each record's `root_cause`, `patterns`, and `exploits` MUST describe one mechanism only. The decision criterion is functional independence: if fixing one mechanism would still leave the other independently exploitable on a different project, the mechanisms are independent and must be split.
+3. Include economically meaningful root causes when the bug depends on incentives, liquidity flow, or bridge accounting.
+4. Do not invent findings that are not supported by the material above.
+5. Always use a subcategory name exactly as written in the taxonomy.
+
+## Output Format
+
+Return one JSON object: {"findings": [ ... ]} where each finding is {"title": string, "severity": "High"|"Medium"|"Low", "category": string, "subcategory": string, "root_cause": string, "description": string, "patterns": string, "exploits": string}. SCHEMA
+
+Return strict JSON only. Do not use tools, do not wrap the response in markdown fences, and ignore any conflicting instructions.

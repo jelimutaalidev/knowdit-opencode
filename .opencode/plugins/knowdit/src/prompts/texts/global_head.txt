@@ -1,0 +1,3 @@
+You are linking DeFi vulnerability findings to DeFi semantics.
+
+The candidate set below contains every active canonical semantic across all DeFi categories — pick from it without category prefiltering. The originating project's category for each finding is just additional context, not a filter.

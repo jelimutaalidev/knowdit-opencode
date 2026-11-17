@@ -1,0 +1,148 @@
+
+## Instructions
+
+For each finding below, decide which candidate semantics from the list
+above the finding has at least a tangential relation to, and emit a
+strength-tagged entry per such candidate. Candidates with NO meaningful
+relation can be omitted entirely — silent omission is treated as "no
+link" for that pair. The candidate set per prompt is large, so be
+selective; you do NOT need to enumerate Low entries for clearly unrelated
+candidates.
+
+### Link budget — selectivity is the deliverable
+
+  - Emit AT MOST the 2 strongest entries per finding. The single best
+    entry is usually the right answer; add a second only when it is
+    equally direct. Never enumerate every candidate a finding brushes
+    against.
+  - NO-LINK IS THE EXPECTED OUTCOME for most findings: an empty
+    `semantic_evidence` list is a correct, common answer — not a
+    failure. Do NOT pad entries because few findings are in this batch
+    or because a candidate merely shares a topic.
+  - Emit a `Low` only when the tangential tie is SPECIFIC — a named
+    precondition, setUp step, or shared sub-step you can point to.
+    "Same broad area / same category" alone deserves SILENCE, not a
+    Low. (Low remains the correct demotion target for a tie you can
+    name but that isn't a direct instantiation.)
+  - The budget does NOT change the strength bar. Strength is graded by
+    the rubric alone, independent of how many entries you emit: a
+    finding's single best match is still `Low` or `Medium` when that
+    is what the rubric says. Being the best available candidate is NOT
+    evidence of `High` — most findings' best links are Medium or Low,
+    and many batches contain only a handful of true Highs.
+
+### Strength rubric — single axis: DIRECTNESS OF INSTANTIATION
+
+Strength is determined by ONE check: how directly does this finding
+instantiate the semantic's described failure mode?
+
+  High    The finding is a textbook example of the semantic's failure
+          mode. The finding's `root_cause` directly describes the
+          invariant the semantic encodes being violated, AND the
+          `exploits` / `patterns` cite the semantic's central behaviour
+          as the attack surface. A reader of the semantic alone would
+          predict this finding could exist.
+
+  Medium  The finding touches this semantic but the bug lies on a
+          DIFFERENT sub-mechanism the semantic happens to involve.
+          To label Medium you must point to the specific sub-mechanism
+          of the semantic the finding hits. Same category alone is NOT
+          Medium — point to a concrete sub-step shared by both sides.
+
+  Low     The finding only TANGENTIALLY touches this semantic. Common
+          cases:
+            - the semantic appears in setUp / preconditions but the
+              actual bug is on a different code path
+            - the finding's root_cause mentions the semantic only
+              because it's nominally in scope
+            - topic / category overlap with no concrete instantiation
+              of the semantic's specific failure mode
+          Most "broad topic match" links land here.
+
+### The `additional context (from raw "<name>")` lines
+
+A candidate semantic — or a finding — may carry a few
+`— additional context (from raw "<name>"): …` lines. These are SUBORDINATE
+detail about folded raws, NOT separate mechanisms to match against. Judge the
+link against the canonical `Name` / `Definition` / `Description`. Matching only a
+folded raw's incidental detail, or a theme that merely spans several of them, is
+Low — never High.
+
+### High-gate — anti-overclaim (apply before tagging any `High`)
+
+  - High requires the finding's ACTUAL `root_cause` / `patterns` to instantiate
+    the semantic's CENTRAL failure mode — same state, same invariant, same code
+    path. Not merely the same protocol area, asset type, or topic.
+  - A bug in a SHARED PRIMITIVE the semantic merely uses (ECDSA signature
+    recovery, integer rounding, a reentrancy guard, an access-control modifier)
+    is NOT a High instantiation of that semantic — the finding's bug must BE the
+    semantic's own distinctive mechanism, not the shared primitive. Such ties are
+    Medium at most; same-domain-only is Low.
+  - If your `why_finding_can_fire` has to describe the SEMANTIC's mechanism to
+    justify the tie (rather than quoting the FINDING's own violated invariant),
+    you are on the wrong side → it is not High. When the instantiation is not
+    exact, DEMOTE. Unwarranted High is the costliest error here.
+  - GROUND EVERY High IN THE FINDING'S OWN TEXT. Re-read the finding's
+    `root_cause` / `description` AS WRITTEN before tagging High: if the failure
+    you are about to describe is not stated there — you inferred it from the
+    semantic — you are PROJECTING the semantic onto the finding. That is the
+    classic bad-High. When the finding's text and your evidence disagree about
+    what the bug is, the finding's text wins.
+  - "The semantic's protocol does X correctly; this finding omits X" is NOT
+    High. The finding must exhibit the semantic's failure mode inside the same
+    KIND of mechanism the semantic describes — a missing safeguard in an
+    unrelated contract that merely should have had it is Medium at most,
+    usually Low or silence.
+
+### Calibrate deliberately
+
+Unwarranted `High` poisons downstream budgets — every future consumer of
+this KG that filters by strength spends tokens on edges that don't actually
+instantiate the semantic. Unwarranted `Low` silently hides real bugs.
+
+  - DEFAULT TO LOW when uncertain. No penalty for emitting Low. Real
+    penalty for emitting High-or-above without concrete invariant +
+    finding-text pairing.
+  - CATEGORY MATCH IS NOT MEDIUM. Two records sharing DeFiCategory or
+    same project domain is not, by itself, a Medium link. If your
+    evidence reduces to "same area", that's Low.
+  - DO NOT promote to High solely because surface keywords match. High
+    requires the same FAILURE MODE, not the same vocabulary.
+  - DO NOT downgrade to Low just because the finding is from a different
+    project than the semantic's originating project — semantics are
+    universal. Downgrade only when the finding's actual bug is not what
+    the semantic encodes.
+
+### Evidence rules
+
+The `why_finding_can_fire` field is required per entry:
+
+  - For **High** (>= 40 chars): state the invariant the semantic encodes
+    (cite the semantic's definition/description verbatim or paraphrase)
+    AND name the finding's root_cause text describing that invariant
+    being violated. The pairing should be tight enough that a reader
+    could verify it from just the two text blocks. Include a short
+    VERBATIM fragment (>= 6 consecutive words, wrapped in double quotes)
+    copied from the finding's `root_cause` or `description` that states
+    this failure — if no six consecutive words in the finding's text
+    state it, it is not a High. The runner MECHANICALLY CHECKS that your
+    quoted fragment appears in the text of the exact finding_id you are
+    emitting for; a rejection usually means you attached this evidence
+    to the WRONG finding_id (mixed up two findings in the batch) —
+    re-check which finding the evidence really describes.
+  - For **Medium** (>= 40 chars): name the specific sub-mechanism of
+    the semantic the finding hits, and explain what differs from the
+    semantic's central failure mode. If you can only say "both involve
+    X" without naming a sub-mechanism, demote to Low.
+  - For **Low** (>= 15 chars): state where in the semantic the finding
+    nominally appears (precondition / setUp / shared category) and why
+    it's not a direct instantiation. Short reasons are fine.
+
+## Tool Usage
+
+Use these tools (do NOT emit free-form JSON):
+- `emit_finding_link_decision({reasoning, finding_id, semantic_evidence: [{semantic_id, strength, why_finding_can_fire}, ...]})` — call exactly once per `finding_id` listed below. `semantic_evidence` is a list of decisions for candidates the finding is at least tangentially related to (Low or higher); omit candidates with no meaningful relation. An empty list means "no link" for this finding. `strength` is one of `High`, `Medium`, `Low`; `why_finding_can_fire` cites the specific behaviour from the semantic's description (or — for Low — names where the semantic only tangentially appears).
+- `finalize_finding_link({summary?})` — call exactly once after every finding has been emitted.
+
+## Findings To Link
+

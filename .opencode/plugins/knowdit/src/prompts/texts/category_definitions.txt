@@ -1,0 +1,16 @@
+Categories:
+
+* **Lending:** Protocols that allow users to supply assets to earn interest or borrow assets by providing collateral (e.g., Aave, Compound).
+* **Dexes:** Decentralized exchanges facilitating asset swaps via AMMs or order books (e.g., Uniswap, Curve).
+* **Yield:** Protocols focused on staking, locking, or rewards distribution mechanisms to incentivize liquidity or holding.
+* **Services:** Utility protocols providing infrastructure, privacy, automation, or oracle services.
+* **Derivatives:** Financial instruments derived from underlying assets, including perpetual futures, options, and synthetics.
+* **Yield Aggregator:** Vaults or strategies that automate yield farming by moving assets across protocols to maximize returns.
+* **Real World Assets:** Protocols tokenizing off-chain physical assets like real estate, treasury bills, or commodities.
+* **Stablecoins:** Protocols issuing tokens pegged to a fiat currency or stable value.
+* **Indexes:** Protocols creating baskets of tokens to represent a market sector or weighted strategy.
+* **Insurance:** Protocols providing coverage against smart contract failure, hacks, or de-pegging events.
+* **NFT Marketplace:** Platforms facilitating the buying, selling, or auctioning of NFTs.
+* **NFT Lending:** Protocols using NFTs as collateral for loans or rental markets.
+* **Cross Chain:** Bridges, messaging protocols, or interoperability layers between blockchains.
+* **Others:** Unique or experimental projects that do not fit the above categories.

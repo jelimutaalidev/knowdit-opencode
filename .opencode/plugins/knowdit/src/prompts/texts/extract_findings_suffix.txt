@@ -1,0 +1,38 @@
+
+## Instructions
+
+The underlying project for this report has already been categorized as: {known_categories}
+
+Extract the unique vulnerability findings described in the audit material above.
+
+### Definition of Vulnerability Pattern
+
+For each finding, capture:
+1. **title**: Keep the original report title when one is available.
+2. **root_cause**: The technical and economic root cause. Cite the specific accounting step / state mutation / call ordering / failure-mode that constitutes the bug, not abstract metaphor. E.g. "`swap()` reads `s_reserves` to compute `minimumOut` but allows `setFeeInfo` to mutate the live fee schedule between blocks, so a victim swap is priced under the new fee schedule" — not just "missing slippage check".
+3. **description**: Concrete description of the vulnerable behavioural shape and its impact, in terms of state pre- and post-condition. Include WHICH state variables drift, WHO can drive them off-invariant, and WHAT downstream paths consume the corrupted state.
+4. **severity**: One of `High`, `Medium`, or `Low` using the severity definitions above.
+5. **patterns**: The specific state variables / call orderings / external failure modes / control-flow shapes that constitute the bug. Cite Solidity-level details (e.g. "`transferFrom` is called BEFORE the reserve update; reentrancy guard is per-pool not per-router") rather than English summaries ("missing reentrancy guard").
+6. **exploits**: Concrete attack sequence in terms of `(msg.sender, function, observed state, ordering vs other tx)`. Make it reproducible: a future reader should be able to translate the prose into an explicit transaction sequence.
+7. **category**: Exactly one top-level vulnerability category from the taxonomy.
+8. **subcategory**: Exactly one subcategory from the chosen top-level category.
+
+### Critical Rules
+
+0. **Hard rule on abstraction.** Outside the `title` field, the `root_cause`, `description`, `patterns`, and `exploits` fields MUST NOT include any of:
+   - Specific protocol or project names (Uniswap, Aave, Compound, Tempus, Pendle, BentoBox, …).
+   - Specific contract names (UniswapV2Pair, BentoBoxV1, …).
+   - Specific function signatures or library APIs (`depositAndFix(...)`, `swapExactTokensForTokens(...)`).
+   - Specific branded asset names (USDC, DAI, stETH, …) — say "stablecoin", "wrapped staking receipt", etc. instead.
+   Use only abstract roles like "AMM swap helper", "external principal-token integration", "liquidation keeper", "signature forwarder", "shared collateral vault", "yield strategy adapter". The `title` field is the only place where the original report wording is preserved verbatim.
+1. Deduplicate repeated mentions of the same finding inside this material chunk.
+2. **Atomic decomposition.** If a single original finding describes ≥2 independently triggerable vulnerability mechanisms (e.g., "uses the wrong return value AND skips slippage validation"; "missing access control AND missing zero-address check on the same setter"), emit one record per mechanism. The records share the same `title` (original report title) but each record's `root_cause`, `patterns`, and `exploits` MUST describe one mechanism only. The decision criterion is functional independence: if fixing one mechanism would still leave the other independently exploitable on a different project, the mechanisms are independent and must be split.
+3. Include economically meaningful root causes when the bug depends on incentives, liquidity flow, or bridge accounting.
+4. Do not invent findings that are not supported by the material above.
+5. Always use a subcategory name exactly as written in the taxonomy.
+
+## Tool Usage
+
+Use these tools to stream out the extraction (do NOT emit free-form JSON):
+- `emit_finding({title, severity, category, subcategory, root_cause, description, patterns, exploits})` — call once per *atomic* vulnerability mechanism. If one original report finding decomposes into multiple independent mechanisms, share the same `title` across the calls but populate `root_cause` / `patterns` / `exploits` independently for each.
+- `finalize_finding_extraction({summary?})` — call exactly once when every distinct finding in this chunk has been emitted (or when the chunk contains no findings — call finalize directly without `emit_finding`). Stop afterwards.

@@ -1,0 +1,72 @@
+You are given vulnerability-pattern data to reconcile.
+
+## Existing Findings in Knowledge Base
+
+{existing_findings}
+
+## Newly Extracted Findings
+
+{new_findings}
+
+## Instructions
+
+For each newly extracted finding, decide whether it should be merged with one or more existing findings in the knowledge base or added as a new finding (emit `merge_target_ids: []`).
+
+### Merge Criteria
+
+The judgement must be grounded in the *concrete details* in each side's
+`Root Cause`, `Patterns`, and `Exploits` fields — the specific accounting
+step / state variable drift / call ordering / external-boundary failure
+mode that constitutes the bug. Surface theme overlap ("both involve fee
+calculation", "both touch admin authority") is NOT a sufficient reason to
+merge.
+
+**MERGE only when:**
+- Same concrete state-variable drift (e.g. both bugs cause
+  `s_depositedAssets` to track > actual token balance).
+- Same exploit-shape: ordering of calls / conditions / oracle assumptions
+  reproducible to the same attacker setup.
+- Same vulnerability taxonomy category AND closely matching subcategory.
+
+**Otherwise emit NEW** (empty `merge_target_ids`):
+- Different state variable affected.
+- Different attacker entry point (different `msg.sender` setup, different
+  ordering, different external boundary).
+- Different taxonomy category or substantially different subcategory.
+
+When in doubt: **prefer NEW**. A precise canonical finding capturing one
+specific bug pattern is more useful than a vague canonical that loosely
+covers many.
+
+### Canonical Identity is Locked
+
+When you MERGE, the target canonical's `title`, `severity`, and
+`root_cause` are NEVER modified — they are the canonical's stable
+identity. The canonical's `title`/`severity`/`root_cause` already carry the abstract
+identity, so `updated_description` / `updated_patterns` / `updated_exploits`
+exist ONLY to keep those fields CONCRETE and representative — never to
+generalize. Supply a field only when this raw's value is strictly more
+concrete / complete / precise than the canonical's current one, as a full
+self-contained REPLACEMENT of comparable length. OMIT a field when the
+existing value already covers the raw, merely restates it, or would only
+get broader. NEVER broaden a field toward a generic category label — that
+erases the concrete signal.
+
+Instead, every MERGE MUST carry `appended_description`, `appended_patterns`,
+and `appended_exploits` (all in the same call): one or two sentences each on
+how THIS raw *extends* the canonical's description / patterns / exploits — the
+concrete delta it adds (a different state-variable drift, a distinct attacker
+entry or ordering, an extra failure mode). These notes are stored on the merge
+edge, so the canonical fields stay tight while each folded variant's specifics
+are preserved per-edge. Name only what is NEW in this raw; if this raw adds
+nothing new to one of the three, say so explicitly (e.g. "no new exploit
+vector beyond the canonical").
+
+If the new raw's bug shape cannot be expressed under the existing target's
+title/severity/root_cause, emit `merge_target_ids: []` (NEW) instead.
+
+## Tool Usage
+
+Use these tools (do NOT emit free-form JSON):
+- `emit_finding_merge_decision({reason, new_finding_title, merge_target_ids, updated_description?, updated_patterns?, updated_exploits?, appended_description?, appended_patterns?, appended_exploits?})` — call exactly once for each `new_finding_title` listed in the prompt above. Empty `merge_target_ids` = NEW; one or more IDs = MERGE. The `updated_*` fields (optional, merge-only) are full replacements supplied ONLY to make a canonical field more concrete/complete — never to generalize; omit any to keep the existing one. `appended_description` / `appended_patterns` / `appended_exploits` are ALL REQUIRED on every MERGE: one or two sentences each on how this raw extends the canonical's description / patterns / exploits (omit only for NEW).
+- `finalize_finding_merge({summary?})` — call exactly once after every newly-extracted finding has been decided. Stop afterwards.

@@ -1,0 +1,102 @@
+You are given DeFi semantic data to reconcile against the historical knowledge base.
+
+## Semantic Data
+
+### Existing Semantics in Knowledge Base
+
+{existing_semantics}
+
+### Newly Extracted Semantics (from the current project)
+
+{new_semantics}
+
+## Instructions
+
+For every newly extracted semantic listed above, decide whether it should:
+- **MERGE** into one or more existing canonical semantics in the knowledge base, OR
+- be admitted as a **NEW** canonical semantic (emit `merge_target_ids: []`).
+
+### Decision Criteria
+
+The judgement must be grounded in the *concrete behavioural details* in
+each side's `Description` field — which state variables are mutated, which
+access controls gate them, what external boundaries are crossed, what
+invariants are enforced. Surface-level theme overlap ("both involve admin",
+"both manage parameters", "both touch deposits") is NOT a sufficient reason
+to merge.
+
+**MERGE only when:**
+- The same concrete state variable(s) are mutated under the same accounting
+  semantics (additive / multiplicative / replace-on-checkpoint, etc).
+- The same external-call failure modes apply (revert vs swallowed vs caught).
+- The same access-control shape gates the entry (single owner, role with
+  specific permission, signature gate, …) AND it gates the same kind of
+  state mutation.
+- The pre-condition state and post-condition state are equivalent in
+  concrete terms, not just in narrative.
+- The semantic category is the same.
+
+**Otherwise emit NEW** (empty `merge_target_ids`):
+- A different concrete state-mutation accounting, even if the broad theme
+  overlaps.
+- A different external-boundary failure mode.
+- A different access-control surface.
+- A new financial primitive not covered by any existing semantic.
+
+When in doubt: **prefer NEW**. A precise canonical capturing one specific
+behaviour is more useful than a vague canonical loosely covering many.
+
+### Canonical Identity is Locked
+
+When you choose to MERGE, the target canonical's `name` and `definition`
+are NEVER modified by your decision — they are the canonical's stable
+identity. If the new raw's behaviour cannot be naturally described under
+the existing canonical's name + definition, emit `merge_target_ids: []`
+(NEW) instead of trying to fit the raw under it.
+
+The canonical's `name` + `definition` already carry the abstract concept.
+`updated_description` exists ONLY to keep the description a CONCRETE,
+representative one — never to generalize. Supply it only when this raw's
+description is strictly more concrete / complete / precise than the
+canonical's current one (names more specific state variables, gates, or
+failure modes), as a full self-contained REPLACEMENT of comparable length.
+OMIT it when the existing description already covers the raw, merely
+restates it, or would only get broader. NEVER broaden the description
+toward a generic category label (e.g. "improper access control") — that
+erases the concrete signal that makes the canonical useful.
+
+Instead, every MERGE MUST carry `appended_description`: one or two
+sentences saying how THIS raw *extends* the canonical it folds into — the
+concrete delta it adds (a new state variable it also touches, a different
+gate, an extra failure mode). This note is stored on the merge edge, so the
+canonical description stays a tight representative while each folded
+variant's specifics are preserved per-edge. Do not restate the shared
+concept; name only what is NEW in this raw.
+
+### Examples
+
+✓ Good merge:
+  raw description: "increments `s_depositedAssets` additively by `assets`
+    before `transferFrom`; reverts on `paused`; minted shares =
+    `previewDeposit(assets)`"
+  canonical description: "Vault.deposit increments `s_depositedAssets`
+    additively prior to `safeTransferFrom`; gated by `whenNotPaused`;
+    shares = `previewDeposit`"
+  → MERGE: same state variable (`s_depositedAssets`), same accounting
+    (additive before transfer), same gate (`whenNotPaused`).
+
+✗ Bad merge (must be NEW):
+  raw description: "Owner-gated `setOracleFeed(address)` updates
+    `s_priceFeed` mapping for one collateral; emits `OracleFeedUpdated`."
+  canonical description: "Owner-gated `setRouter(address)` updates the
+    swap-router reference; reverts on zero-address."
+  Theme overlap: "owner-gated setter, single state variable update".
+  But: different state variable (`s_priceFeed` vs `s_router`), different
+  invariants, different downstream consumers.
+  → NEW: theme overlap is not a behavioural anchor.
+
+## Tool Usage
+
+Use these tools (do NOT emit free-form JSON):
+- `emit_semantic_merge_decision({reason, new_semantic_name, merge_target_ids, updated_description?, appended_description?})` — call exactly once for each `new_semantic_name` listed in the prompt above. Set `merge_target_ids: []` for NEW; set it to one or more existing canonical IDs (from this chunk's prompt) for MERGE. `updated_description` (optional, merge-only) is a full replacement supplied ONLY to make the canonical's description more concrete/complete — never to generalize; omit it to keep the existing one. `appended_description` is REQUIRED on every MERGE: one or two sentences on how this raw extends the canonical (omit only for NEW).
+- `finalize_semantic_merge({summary?})` — call exactly once after every newly-extracted semantic has been decided. Stop afterwards.

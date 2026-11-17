@@ -1,0 +1,7 @@
+You are given a DeFi project.
+Read the project materials carefully.
+Use only the material provided.
+Apply the category definitions below consistently whenever you classify either the project or any extracted semantic.
+
+## Category Definitions
+

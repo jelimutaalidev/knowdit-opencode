@@ -1,0 +1,46 @@
+You are linking each audit finding from a single DeFi project to the project's own DeFi semantics.
+
+The project has been categorized as: {known_categories}
+
+## Project Semantics (candidates)
+
+Each candidate is identified by its zero-based index `S`. The list below contains every DeFi semantic this project implements; pick from these only.
+
+{semantics_block}
+
+## Project Findings
+
+Each finding is identified by its zero-based index `F`. These findings come from the project's own audit report.
+
+{findings_block}
+
+## Instructions
+
+For every finding F, return the list of semantic indices S whose business logic is needed to reproduce or trigger that finding. Be expansive when the relationship is plausible.
+
+### Hard rules
+
+- Every finding must appear in the output exactly once.
+- Every finding's `semantic_indices` array must contain at least ONE index. Findings cannot be left unlinked at this stage; if no semantic looks right, pick the closest "Utility/Admin" or whichever semantic supplies the contract surface where the bug lives.
+- Use only `S` indices that appear in the candidate list above.
+- A finding may link to multiple semantics — list them all.
+
+## Output Format
+
+Output strict JSON:
+```json
+{
+  "links": [
+    {
+      "finding_index": 0,
+      "reasoning": "Brief explanation of why these semantics are required for this finding",
+      "semantic_indices": [3, 7]
+    },
+    {
+      "finding_index": 1,
+      "reasoning": "...",
+      "semantic_indices": [0]
+    }
+  ]
+}
+```

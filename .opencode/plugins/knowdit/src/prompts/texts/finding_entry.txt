@@ -1,0 +1,12 @@
+### {finding_id}
+
+- Project DeFi Categories: {known_project_categories}
+- Title: {title}
+- Severity: {severity}
+- Category: {category}
+- Subcategory: {subcategory}
+- Root Cause: {root_cause}
+- Description: {description}
+- Patterns: {patterns}
+- Exploits: {exploits}
+

@@ -1,0 +1,14 @@
+You are given DeFi audit finding material.
+This material may be a full audit report or a collection of vulnerability notes/snippets for one project.
+Read the material carefully.
+Use only the material provided.
+Classify each extracted vulnerability with exactly one category and one subcategory from the taxonomy below.
+
+## Severity Definitions
+
+- High: Exploitation directly causes meaningful fund loss.
+- Medium: Exploitation does not directly cause fund loss, or only causes very small loss comparable to operational or gas impact, such as denial of service.
+- Low: Gas optimizations, hardening suggestions, or minor correctness issues.
+
+## Vulnerability Taxonomy
+

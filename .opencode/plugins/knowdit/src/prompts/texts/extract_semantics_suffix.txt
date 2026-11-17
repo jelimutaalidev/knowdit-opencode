@@ -1,0 +1,46 @@
+
+## Instructions
+
+The project materials above have already been categorized as: {known_categories}
+
+Extract DeFi Semantics from the provided project material chunk.
+
+### Definition of DeFi Semantic
+
+A DeFi Semantic is defined by:
+1. **Name:** A short, abstract, canonical name (e.g., "Constant Product AMM Swap", "Collateralized Debt Position Opening").
+2. **Definition:** A one-sentence formal definition of this semantic.
+3. **Description:** Concrete behavioural prose carrying the implementation details a future reader needs to recognise the same semantic in another project. **NOT** abstract metaphor like "manages user deposits". Whenever applicable from the actual source, include:
+   - Critical state variables read or written, with the operation (e.g. "increments `s_depositedAssets` additively by the *requested* `assets` value, before calling `transferFrom`").
+   - Access control: which role / modifier / `msg.sender` check gates each entry point.
+   - External calls and their failure modes (revert / swallowed in try/catch / silently ignored).
+   - Critical invariants the path enforces or violates (e.g. "reverts on `reserveX < amount`", "preserves `k = reserveX * reserveY` modulo fee").
+   - Pre-condition state and post-condition state in concrete terms.
+
+   Always say WHICH state variable, WITH WHAT semantics, WHO is allowed, WHEN the side effect happens, WHAT external boundaries are crossed. Aim for 4–8 sentences. Detail beats brevity.
+4. **Functions:** The specific functions or entry points in the source code that implement this semantic. Use the containing file or module path in the `contract` field. At least one entry is required per semantic.
+5. **Category:** Exactly one DeFi category, picked from the project's known categories above. Use `Others` only when none fit.
+
+### Critical Rules
+
+1. **Hard rule on abstraction.** In the `name`, `definition`, and `description` fields you MUST NOT include any of:
+   - Specific protocol or project names (Uniswap, Aave, Compound, BentoBox, Tempus, Pendle, …).
+   - Specific contract names (UniswapV2Pair, BentoBoxV1, …).
+   - Specific function signatures or library APIs (`swap(...)`, `depositAndFix(...)`).
+   - Specific branded asset names (USDC, DAI, stETH, …) — say "stablecoin", "wrapped staking receipt", etc.
+   Use only abstract DeFi roles like "AMM swap helper", "external principal-token integration", "shared collateral vault", "yield strategy adapter", "liquidity-mining staker", "signature forwarder".
+   - Bad: "Deposit into BentoBox to mint BentoShares"
+   - Good: "Deposit into shared vault to mint unified liquidity shares"
+   The `functions` field IS the place for project-specific implementation pointers and SHOULD keep the real contract path and function name.
+
+2. **Use canonical DeFi vocabulary:** "liquidity provision", "collateralized debt position", "yield-bearing vault share", "constant-product swap", "concentrated liquidity range order", etc.
+
+3. **Cluster every callable function or public entry point visible in this chunk** into a semantic — but cluster aggressively. Many functions in the same file usually map to the same DeFi semantic (e.g. `mint`, `burn`, `_mint`, `_burn` together = "Fungible Token Supply Adjustment"). The `functions` array is where you enumerate every member of a cluster; the *number of distinct semantics* should stay small. If a function does not correspond to any DeFi semantic (pure admin/governance, view-only getters, standard token boilerplate), put it under a single "Utility/Admin" semantic for this chunk — do not create one Utility/Admin semantic per file.
+
+4. **Be thorough within this chunk** but stay project-agnostic. Subsequent chunks of the same project receive different code; cross-chunk merging will deduplicate later, so do not skip a real semantic just because it might appear elsewhere.
+
+## Tool Usage
+
+Use these tools to stream out the extraction (do NOT emit free-form JSON):
+- `emit_semantic({name, definition, description, category, functions: [{name, contract, signature?}, …]})` — call once for each distinct DeFi Semantic you identify in this chunk. Cluster aggressively; emit one call per *distinct* semantic, with every same-meaning function listed inside `functions`.
+- `finalize_semantic_extraction({summary?})` — call exactly once when this chunk has been fully covered (or when it contains no meaningful DeFi semantics — call finalize directly without any `emit_semantic`). After this, stop emitting tool calls.

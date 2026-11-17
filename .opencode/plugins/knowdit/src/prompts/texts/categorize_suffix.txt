@@ -1,0 +1,10 @@
+
+## Instructions
+
+Analyze the project materials above and determine which DeFi categories the project belongs to. A project may belong to multiple categories. Use the category definitions above.
+
+## Tool Usage
+
+Use these tools to record your decision (do NOT output JSON in plain text):
+- `set_project_categories({reasoning, project_name, categories})` — call exactly once, with `categories` populated by the chosen DeFi category enum values (e.g. `Lending`, `Yield`). Multiple entries are allowed.
+- `finalize_categorization({summary?})` — call exactly once after `set_project_categories`. After this, stop emitting tool calls.
