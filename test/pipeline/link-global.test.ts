@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { countVerbatimWords, linkGlobal } from "../../.opencode/plugins/knowdit/src/pipeline/link-global.ts";
+import { inProjectEvidence } from "../../.opencode/plugins/knowdit/src/pipeline/evidence.ts";
 import { openJournal } from "../../.opencode/plugins/knowdit/src/journal.ts";
 import { tempDb } from "../helpers/db.ts";
 
@@ -131,4 +132,26 @@ test("drains pending semantics that the retry pass already covers", async () => 
   const r = await linkGlobal(ctx);
   assert.equal(r.pendingDrained, 1);
   assert.equal(ctx.db.get<{ n: number }>("select count(*) n from pending_semantic")!.n, 0);
+});
+
+test("never overwrites an existing in-project link with a global one", async () => {
+  const { ctx, db } = await seededGlobalCtx([
+    { semanticIndex: 0, strength: "Medium", evidence: "global evidence" },
+  ]);
+  const findingId = db.get<{ id: number }>("select id from audit_finding limit 1")!.id;
+  const semanticId = db.get<{ id: number }>("select id from semantic_node order by id limit 1")!.id;
+  db.run(
+    `insert into semantic_finding_link (semantic_node_id, audit_finding_id, strength, evidence)
+     values (?, ?, 'High', ?)`,
+    [semanticId, findingId, inProjectEvidence()],
+  );
+
+  await linkGlobal(ctx);
+
+  const row = db.get<{ strength: string; evidence: string }>(
+    "select strength, evidence from semantic_finding_link where semantic_node_id = ? and audit_finding_id = ?",
+    [semanticId, findingId],
+  )!;
+  assert.equal(row.strength, "High");
+  assert.equal(row.evidence, inProjectEvidence());
 });

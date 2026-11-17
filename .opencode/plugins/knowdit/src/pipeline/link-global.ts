@@ -269,8 +269,11 @@ export async function linkGlobal(opts: {
 
     db.tx(() => {
       for (const link of resolved) {
+        // The reference `append_semantic_finding_links` never overwrites an
+        // existing edge, so an in-project link keeps its High strength and
+        // synthetic evidence even when the global pass picks the same pair.
         db.run(
-          `insert or replace into semantic_finding_link
+          `insert or ignore into semantic_finding_link
              (semantic_node_id, audit_finding_id, strength, evidence)
            values (?, ?, ?, ?)`,
           [link.semanticId, finding.id, link.strength, link.evidence],
