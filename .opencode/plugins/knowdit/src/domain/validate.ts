@@ -24,6 +24,16 @@ function normalizeCategory(value: string): string {
     .join(" ");
 }
 
+/**
+ * Return the seeded spelling of a DeFi category, or null when it is not in
+ * the enum. Mirrors the reference parser's case/separator tolerance.
+ */
+export function canonicalDefiCategory(value: string): string | null {
+  const target = normalizeCategory(value);
+  return DEFI_CATEGORIES.find((category) => normalizeCategory(category) === target) ?? null;
+}
+
+
 export function isDefiCategory(value: string): boolean {
   const target = normalizeCategory(value);
   return DEFI_CATEGORIES.some((category) => normalizeCategory(category) === target);

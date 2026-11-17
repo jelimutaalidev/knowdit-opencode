@@ -111,7 +111,22 @@ export async function openKg(path: string): Promise<KgDb> {
   const raw = await loadDriver(path);
   raw.exec("PRAGMA foreign_keys=ON");
   raw.exec("PRAGMA journal_mode=WAL");
-  raw.exec(SCHEMA);
+
+  // Applying 18 DDL statements one by one costs one fsync each on WAL.
+  // The schema is only `CREATE TABLE IF NOT EXISTS`, so one transaction is
+  // equivalent and an order of magnitude faster.
+  if (raw.supportsTx) {
+    raw.exec("BEGIN");
+    try {
+      raw.exec(SCHEMA);
+      raw.exec("COMMIT");
+    } catch (error) {
+      raw.exec("ROLLBACK");
+      throw error;
+    }
+  } else {
+    raw.exec(SCHEMA);
+  }
 
   let inTx = false;
 
