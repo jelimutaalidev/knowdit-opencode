@@ -12,7 +12,7 @@ type LinkSpec = { semanticIndex: number; strength: "High" | "Medium" | "Low"; ev
 
 async function seededGlobalCtx(
   links: LinkSpec[],
-  opts: { retryLinks?: LinkSpec[]; pending?: boolean } = {},
+  opts: { retryLinks?: LinkSpec[]; pending?: boolean; failFirstCall?: boolean } = {},
 ): Promise<{
   ctx: {
     db: Awaited<ReturnType<typeof tempDb>>["db"];
@@ -72,6 +72,9 @@ async function seededGlobalCtx(
     calls: 0,
     async json(input: { prompt: string; validate: (value: unknown) => unknown }) {
       llm.calls += 1;
+      if (opts.failFirstCall && llm.calls === 1) {
+        throw new Error("Free usage limit reached. Free models work in OpenCode on a schedule.");
+      }
       const spec = llm.calls === 1 || opts.retryLinks === undefined ? links : opts.retryLinks;
       const payload = {
         links: [
@@ -132,6 +135,29 @@ test("drains pending semantics that the retry pass already covers", async () => 
   const r = await linkGlobal(ctx);
   assert.equal(r.pendingDrained, 1);
   assert.equal(ctx.db.get<{ n: number }>("select count(*) n from pending_semantic")!.n, 0);
+});
+
+test("fails the global unit on a model limit and resumes only unlinked findings", async () => {
+  const { ctx } = await seededGlobalCtx(
+    [{ semanticIndex: 0, strength: "Medium", evidence: "a" }],
+    { failFirstCall: true },
+  );
+
+  await assert.rejects(() => linkGlobal(ctx), /global link failed.*model limit|global link failed/i);
+  assert.equal(ctx.db.get<{ n: number }>("select count(*) n from finding_link_status")!.n, 0);
+  assert.equal(
+    ctx.journal.list(229).find((unit) => unit.stage === "link_global")!.status,
+    "failed",
+  );
+
+  const resumed = await linkGlobal(ctx);
+
+  assert.equal(resumed.linked, 1);
+  assert.equal(ctx.db.get<{ n: number }>("select count(*) n from finding_link_status")!.n, 1);
+  assert.equal(
+    ctx.journal.list(229).find((unit) => unit.stage === "link_global")!.status,
+    "done",
+  );
 });
 
 test("never overwrites an existing in-project link with a global one", async () => {

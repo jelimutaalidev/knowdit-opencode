@@ -95,13 +95,39 @@ export async function extractFindings(
     "utf8",
   );
   const projectId = findProject(ctx);
+
+  // A crash between the insert transaction and the journal update makes the
+  // stage look unfinished on resume. Reuse what the project already owns
+  // instead of asking the model again and inserting duplicate rows.
+  if (projectId !== null) {
+    const existing = ctx.db.all<{ id: number }>(
+      `select audit_finding_id as id
+         from project_finding
+        where project_id = ?
+        order by audit_finding_id`,
+      [projectId],
+    );
+    if (existing.length > 0) {
+      return { rawIds: existing.map((row) => row.id) };
+    }
+  }
+
   const categories = projectId === null ? [] : projectCategories(ctx, projectId);
   const chunks = chunkByBudget(report, DEFAULT_CHUNK_TOKENS);
   const collected: FindingItem[] = [];
 
-  for (const chunk of chunks) {
+  for (let index = 0; index < chunks.length; index++) {
+    await ctx.onProgress?.({
+      title: "KNOWDIT build",
+      stage: "findings",
+      contest: ctx.contest.c4Id,
+      detail: `Extracting findings · chunk ${index + 1}/${chunks.length} · C4 ${ctx.contest.c4Id}`,
+      completed: index,
+      total: chunks.length,
+    });
+
     const { value } = await ctx.llm.json({
-      prompt: buildExtractFindingsPrompt({ chunk, schemaHint: "", categories }),
+      prompt: buildExtractFindingsPrompt({ chunk: chunks[index], schemaHint: "", categories }),
       validate: validateFindings,
     });
     collected.push(...value);

@@ -34,9 +34,67 @@ test("force after merge requires resetAll", async () => {
   await assert.rejects(() => buildKg({ ...deps, force: true }), /reset_all/i);
 });
 
-test("refuses merge and global link while a failed contest is not skipped", async () => {
-  const { deps } = await fakeBuild({ contests: [229, 71], failContest: 229 });
-  await assert.rejects(() => buildKg({ ...deps }), /contest 229/i);
+test("retries a failed unit in place before merge and global linking", async () => {
+  const { deps, order } = await fakeBuild({ contests: [229, 71], failContest: 229 });
+  const result = await buildKg({ ...deps });
+
+  assert.equal(result.integrity.ok, true);
+  assert.ok(order.includes("merge:229"));
+  assert.equal(
+    deps.journal.list(229).find((unit) => unit.stage === "merge")!.status,
+    "done",
+  );
+});
+
+test("emits live progress for every stage of a build", async () => {
+  const updates: Record<string, unknown>[] = [];
+  const { deps } = await fakeBuild({ contests: [229] });
+
+  await buildKg({
+    ...deps,
+    onProgress: (update) => {
+      updates.push(update);
+    },
+  });
+
+  const stages = new Set(updates.map((update) => update.stage));
+  for (const stage of [
+    "categorize",
+    "semantics",
+    "findings",
+    "link",
+    "merge",
+    "contest_done",
+    "global",
+    "finalize",
+    "done",
+  ]) {
+    assert.ok(stages.has(stage), `missing progress stage '${stage}'`);
+  }
+  assert.ok(updates.every((update) => typeof update.detail === "string"));
+});
+
+test("repairs global links when global is marked done but findings lack status", async () => {
+  const { deps, order } = await fakeBuild({ contests: [229] });
+  await buildKg({ ...deps });
+  assert.equal(
+    deps.db.get<{ n: number }>("select count(*) n from finding_link_status")!.n,
+    1,
+  );
+
+  // Simulate the observed failure: the global unit was journaled done while
+  // findings still had in-project links but no global-link decision.
+  deps.db.run("delete from finding_link_status");
+  const globalRuns = order.filter((entry) => entry === "global").length;
+
+  const result = await buildKg({ ...deps });
+
+  assert.equal(result.integrity.ok, true);
+  assert.equal(
+    deps.db.get<{ n: number }>("select count(*) n from finding_link_status")!.n,
+    1,
+  );
+  assert.equal(order.filter((entry) => entry === "global").length, globalRuns + 1);
 });
 
 test("a skipped contest unblocks the rest of the build", async () => {

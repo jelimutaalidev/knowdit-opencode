@@ -12,6 +12,27 @@ export type LlmCallerOptions = {
 
 const DEFAULT_COST = { input: 0, output: 0 };
 
+const MODEL_LIMIT_PATTERN =
+  /free usage limit|rate limit|too many requests|\b429\b|quota exceeded/i;
+
+/**
+ * The provider refused the request because the model quota/rate limit is
+ * exhausted. Retrying the same prompt immediately cannot help, so the caller
+ * stops after the first such error and tells the operator how to resume.
+ */
+export class ModelLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ModelLimitError";
+  }
+}
+
+export function isModelLimitError(error: unknown): boolean {
+  if (error instanceof ModelLimitError) return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return MODEL_LIMIT_PATTERN.test(message);
+}
+
 function estimateTokens(chars: number): number {
   return Math.ceil(chars / 4);
 }
@@ -51,7 +72,19 @@ export function createLlmCaller(opts: LlmCallerOptions): LlmCaller {
       let prompt = input.prompt;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const text = (await opts.generate({ prompt, model: opts.model })).text;
+        let text: string;
+        try {
+          text = (await opts.generate({ prompt, model: opts.model })).text;
+        } catch (error) {
+          if (isModelLimitError(error)) {
+            const reason = error instanceof Error ? error.message : String(error);
+            throw new ModelLimitError(
+              `model limit reached: ${reason}. Completed units are journaled and cached; ` +
+                "rerun kg_build after the limit resets to continue without redoing them.",
+            );
+          }
+          throw error;
+        }
         try {
           const value = input.validate(extractJson(text));
           opts.cache.set(key, text);

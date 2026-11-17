@@ -28,6 +28,19 @@ test("persists raw node, category, functions, and provenance", async () => {
   assert.equal(ctx.db.get<{ n: number }>("select count(*) n from sqlite_master where type='table' and name='semantic_node_category'")!.n, 0);
 });
 
+test("reuses existing project semantics on retry instead of duplicating", async () => {
+  const { ctx, llm } = await fakeCtx({ semantics: [sem("Swap")] });
+  const first = await extractSemantics(ctx);
+  const calls = llm.calls;
+
+  const second = await extractSemantics(ctx);
+
+  assert.deepEqual(second.rawIds, first.rawIds);
+  assert.equal(llm.calls, calls);
+  assert.equal(ctx.db.get<{ n: number }>("select count(*) n from semantic_node")!.n, 1);
+  assert.equal(ctx.db.get<{ n: number }>("select count(*) n from project_semantic")!.n, 1);
+});
+
 test("rejects a semantic with no functions or a file outside the snapshot", async () => {
   const noFunctions = await fakeCtx({ semantics: [{ ...sem("Swap"), functions: [] }] });
   await assert.rejects(() => extractSemantics(noFunctions.ctx), /at least one function/i);

@@ -12,7 +12,7 @@ import { finalizeBuild } from "./finalize.ts";
 import { linkGlobal } from "./link-global.ts";
 import { linkInProject } from "./link-in-project.ts";
 import { mergeContest } from "./merge.ts";
-import type { StageContext } from "./types.ts";
+import type { ProgressFn, StageContext } from "./types.ts";
 
 export type BuildOptions = {
   dataDir: string;
@@ -20,6 +20,8 @@ export type BuildOptions = {
   concurrency?: 1;
   force?: boolean;
   resetAll?: boolean;
+  /** Receives stage-level updates so the tool UI can show live progress. */
+  onProgress?: ProgressFn;
 };
 
 export type BuildResult = {
@@ -144,12 +146,34 @@ export function resetContest(db: KgDb, c4Id: number): void {
   });
 }
 
+const STAGE_LABELS: Record<string, string> = {
+  categorize: "Categorizing project",
+  semantics: "Extracting semantic nodes",
+  findings: "Extracting findings",
+  link: "Linking findings in project",
+  merge: "Merging duplicate knowledge",
+  global: "Linking findings across projects",
+  finalize: "Verifying knowledge graph integrity",
+};
+
+type StageRunOptions = {
+  /** Re-run even when the journal says the unit is done. */
+  force?: boolean;
+  /** Runs only when the unit is not skipped. */
+  onStart?: () => void | Promise<void>;
+  /** Flips to true whenever a unit actually executes. */
+  ran?: { value: boolean };
+};
+
 async function runStage<T>(
   journal: Journal,
   unit: { stage: string; c4Id: number; unitIndex: number },
   fn: () => Promise<T>,
+  opts: StageRunOptions = {},
 ): Promise<T | undefined> {
-  if (journal.isDone(unit)) return undefined;
+  if (!opts.force && journal.isDone(unit)) return undefined;
+  if (opts.ran) opts.ran.value = true;
+  if (opts.onStart) await opts.onStart();
   journal.start(unit);
   try {
     const result = await fn();
@@ -159,6 +183,37 @@ async function runStage<T>(
     journal.fail(unit, error instanceof Error ? error.message : String(error));
     throw error;
   }
+}
+
+/**
+ * Findings that still have no global-link decision. A previous run can leave
+ * these behind when the model quota runs out after its findings were already
+ * linked in-project: the `global` unit is then marked done even though the
+ * status rows never landed. Resume must repair that instead of skipping it.
+ */
+function countFindingsMissingGlobalStatus(db: KgDb, c4Ids: readonly number[]): number {
+  const filters = [
+    "not exists (select 1 from finding_link_status fls where fls.audit_finding_id = af.id)",
+  ];
+  const params: unknown[] = [];
+  if (c4Ids.length > 0) {
+    filters.push(
+      `exists (
+         select 1 from project_finding pf
+           join project_platform pp on pp.project_id = pf.project_id
+          where pf.audit_finding_id = af.id
+            and pp.platform_id in (${c4Ids.map(() => "?").join(", ")})
+       )`,
+    );
+    params.push(...c4Ids.map((id) => `c4-${id}`));
+  }
+
+  return (
+    db.get<{ n: number }>(
+      `select count(*) n from audit_finding af where ${filters.join(" and ")}`,
+      params,
+    )?.n ?? 0
+  );
 }
 
 export async function buildKg(opts: BuildDeps): Promise<BuildResult> {
@@ -190,65 +245,201 @@ export async function buildKg(opts: BuildDeps): Promise<BuildResult> {
 
   const active = c4Ids.filter((c4Id) => !journal.isSkipped(c4Id));
 
-  for (const c4Id of active) {
-    const failed = journal
-      .list(c4Id)
-      .filter((unit) => unit.status === "failed")
-      .map((unit) => unit.stage);
-    if (failed.length > 0) {
-      throw new Error(
-        `contest ${c4Id} has failed units (${failed.join(", ")}); rerun it or skip it before merge/global linking`,
-      );
-    }
+  const emit: ProgressFn = async (update) => {
+    if (opts.onProgress) await opts.onProgress(update);
+  };
+  const ran = { value: false };
+
+  if (active.length > 0) {
+    await emit({
+      title: "KNOWDIT build",
+      stage: "start",
+      detail: `Building ${active.length} contest(s)`,
+      completed: 0,
+      total: active.length,
+      contestCompleted: 0,
+      contestTotal: active.length,
+    });
   }
 
   let semanticEdges = 0;
   let findingEdges = 0;
 
-  for (const c4Id of active) {
+  for (let index = 0; index < active.length; index++) {
+    const c4Id = active[index];
     const contest = manifest.contests.find((entry) => entry.c4Id === c4Id);
     if (!contest) throw new Error(`contest ${c4Id} is not in the dataset manifest`);
 
+    // Every update below carries the overall contest position so a long
+    // chunk-level stage still tells the operator where the build is.
+    const progress: ProgressFn = async (update) => {
+      await emit({ contestCompleted: index, contestTotal: active.length, ...update });
+    };
     const ctx: StageContext = {
       db,
       llm,
       journal,
       contest,
       datasetDir: opts.dataDir,
+      onProgress: progress,
     };
     const unit = (stage: string) => ({ stage, c4Id, unitIndex: 0 });
+    const stageStart = (stage: string) => async () => {
+      await progress({
+        title: "KNOWDIT build",
+        stage,
+        contest: c4Id,
+        detail: `${STAGE_LABELS[stage] ?? stage} · C4 ${c4Id} (contest ${index + 1}/${active.length})`,
+        completed: index,
+        total: active.length,
+      });
+    };
 
-    await runStage(journal, unit("categorize"), () => categorizeProject(ctx));
-    await runStage(journal, unit("semantics"), () => extractSemantics(ctx));
-    await runStage(journal, unit("findings"), () => extractFindings(ctx));
-    await runStage(journal, unit("link"), () => linkInProject(ctx));
-    const merge = await runStage(journal, unit("merge"), () => mergeContest(ctx));
+    await runStage(journal, unit("categorize"), () => categorizeProject(ctx), {
+      onStart: stageStart("categorize"),
+      ran,
+    });
+    await runStage(journal, unit("semantics"), () => extractSemantics(ctx), {
+      onStart: stageStart("semantics"),
+      ran,
+    });
+    await runStage(journal, unit("findings"), () => extractFindings(ctx), {
+      onStart: stageStart("findings"),
+      ran,
+    });
+    await runStage(journal, unit("link"), () => linkInProject(ctx), {
+      onStart: stageStart("link"),
+      ran,
+    });
+    const merge = await runStage(journal, unit("merge"), () => mergeContest(ctx), {
+      onStart: stageStart("merge"),
+      ran,
+    });
     if (merge) {
       semanticEdges += merge.semanticEdges;
       findingEdges += merge.findingEdges;
     }
+
+    await progress({
+      title: "KNOWDIT build",
+      stage: "contest_done",
+      contest: c4Id,
+      detail: `Contest ${index + 1}/${active.length} complete · C4 ${c4Id}`,
+      completed: index + 1,
+      total: active.length,
+    });
   }
 
-  await runStage(journal, { stage: "global", c4Id: 0, unitIndex: 0 }, () =>
-    linkGlobal({ db, llm, journal, c4Ids: active }),
+  const globalUnit = { stage: "global", c4Id: 0, unitIndex: 0 };
+  const missingGlobalStatus = countFindingsMissingGlobalStatus(db, active);
+  const repairingGlobal = journal.isDone(globalUnit) && missingGlobalStatus > 0;
+
+  const globalProgress: ProgressFn = async (update) => {
+    const event = update.event;
+    if (event === "global_start") {
+      await emit({
+        title: "KNOWDIT global link",
+        stage: "global",
+        detail: `Linking ${update.findings} finding(s) against ${update.candidates} semantic(s)`,
+        completed: 0,
+        total: update.findings,
+      });
+      return;
+    }
+
+    if (event === "global_finding") {
+      const position = Number(update.index);
+      const total = Number(update.total);
+      const status = String(update.status);
+      await emit({
+        title: "KNOWDIT global link",
+        stage: "global",
+        contest: update.c4Id,
+        finding: update.findingId,
+        detail:
+          status === "done"
+            ? `Linked finding ${position}/${total} · C4 ${update.c4Id}`
+            : status === "failed"
+              ? `Failed finding ${position}/${total} · C4 ${update.c4Id}: ${update.error}`
+              : `Linking finding ${position}/${total} · C4 ${update.c4Id}`,
+        completed: status === "done" ? position : Math.max(0, position - 1),
+        total,
+      });
+      return;
+    }
+
+    if (event === "global_done") {
+      const linked = Number(update.linked ?? 0);
+      const failed = Number(update.failed ?? 0);
+      await emit({
+        title: "KNOWDIT global link",
+        stage: "global",
+        detail: `${linked} finding(s) linked, ${failed} failed`,
+        completed: linked,
+        total: linked + failed,
+      });
+    }
+  };
+
+  await runStage(
+    journal,
+    globalUnit,
+    () => linkGlobal({ db, llm, journal, c4Ids: active, onProgress: globalProgress }),
+    {
+      force: repairingGlobal,
+      ran,
+      onStart: async () => {
+        await emit({
+          title: "KNOWDIT global link",
+          stage: "global",
+          detail: repairingGlobal
+            ? `Repairing ${missingGlobalStatus} finding(s) left without a global-link decision`
+            : "Starting global link pass",
+        });
+      },
+    },
   );
 
+  const finalizeForce = ran.value;
   const integrity = await runStage(
     journal,
     { stage: "finalize", c4Id: 0, unitIndex: 0 },
     async () => {
       const report = finalizeBuild(db, { c4Ids: active });
       if (!report.ok) {
+        const failures = report.checks.filter((entry) => !entry.passed);
         throw new Error(
-          `integrity gate failed: ${report.checks
-            .filter((entry) => !entry.passed)
-            .map((entry) => entry.name)
-            .join(", ")}`,
+          `integrity gate failed: ${failures
+            .map((entry) => `${entry.name}${entry.detail ? ` (${entry.detail})` : ""}`)
+            .join("; ")}`,
         );
       }
       return report;
     },
+    {
+      force: finalizeForce,
+      ran,
+      onStart: async () => {
+        await emit({
+          title: "KNOWDIT build",
+          stage: "finalize",
+          detail: "Verifying knowledge graph integrity",
+          completed: active.length,
+          total: active.length,
+        });
+      },
+    },
   );
+
+  await emit({
+    title: "KNOWDIT build",
+    stage: "done",
+    detail: `Build complete · ${active.length} contest(s) verified`,
+    completed: active.length,
+    total: active.length,
+    contestCompleted: active.length,
+    contestTotal: active.length,
+  });
 
   return {
     contests: active.length,

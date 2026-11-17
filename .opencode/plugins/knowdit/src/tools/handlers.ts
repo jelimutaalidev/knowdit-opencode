@@ -7,7 +7,7 @@ import { prepareDataset } from "../dataset/prepare.ts";
 import type { Manifest } from "../dataset/snapshot.ts";
 import { openJournal } from "../journal.ts";
 import { fileCache } from "../llm/cache.ts";
-import { createLlmCaller } from "../llm/caller.ts";
+import { createLlmCaller, isModelLimitError } from "../llm/caller.ts";
 import type { GenerateFn, ModelRef } from "../llm/types.ts";
 import { buildKg } from "../pipeline/build.ts";
 import { queryFindings, queryLinks, querySemantics } from "../query.ts";
@@ -105,7 +105,7 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
       };
     },
 
-    kg_build: async (input) => {
+    kg_build: async (input, ctx) => {
       const options = asRecord(input);
       const c4Ids = Array.isArray(options.c4Ids)
         ? (options.c4Ids as unknown[])
@@ -132,6 +132,7 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
           concurrency: 1,
           force: asBoolean(options.force),
           resetAll: asBoolean(options.resetAll),
+          onProgress: ctx.progress,
           db,
           llm,
           journal,
@@ -148,6 +149,15 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
             2,
           ),
         };
+      } catch (error) {
+        if (isModelLimitError(error)) throw error;
+
+        const message = error instanceof Error ? error.message : String(error);
+        if (/\bresume\b|\brerun\b/i.test(message)) throw error;
+        throw new Error(
+          `${message}\nResume: rerun knowdit_kg_build with the same c4Ids. ` +
+            "Finished stages are skipped, unfinished ones are retried, and cached model responses are reused.",
+        );
       } finally {
         journal.close();
         db.close();

@@ -1,5 +1,6 @@
 import type { KgDb } from "../db/client.ts";
 import type { Journal } from "../journal.ts";
+import { isModelLimitError } from "../llm/caller.ts";
 import type { LlmCaller } from "../llm/types.ts";
 import { buildFindingLinkEntry, buildGlobalLinkPrompt } from "../prompts/index.ts";
 
@@ -147,8 +148,12 @@ export async function linkGlobal(opts: {
   llm: LlmCaller;
   journal: Journal;
   c4Ids?: number[];
+  onProgress?: (update: Record<string, unknown>) => void | Promise<void>;
 }): Promise<{ linked: number; pendingQueued: number; pendingDrained: number }> {
   const { db, llm, journal } = opts;
+  const emit = async (update: Record<string, unknown>) => {
+    if (opts.onProgress) await opts.onProgress(update);
+  };
 
   const candidates = db.all<CandidateRow>(
     `select id, name, category, definition, description
@@ -204,8 +209,17 @@ export async function linkGlobal(opts: {
   );
 
   let linked = 0;
+  const failures: { findingId: number; error: string }[] = [];
+  let stoppedEarly = false;
 
-  for (const finding of findings) {
+  await emit({
+    event: "global_start",
+    candidates: candidates.length,
+    findings: findings.length,
+  });
+
+  for (let index = 0; index < findings.length; index++) {
+    const finding = findings[index];
     const findingId = `F-${finding.id}`;
     const projectCategories = finding.platform_id
       ? db
@@ -242,6 +256,15 @@ export async function linkGlobal(opts: {
       : 0;
     const unit = { stage: "link_global", c4Id, unitIndex: finding.id };
 
+    await emit({
+      event: "global_finding",
+      index: index + 1,
+      total: findings.length,
+      c4Id,
+      findingId: finding.id,
+      status: "start",
+    });
+
     let prompt = basePrompt;
     let resolved: ResolvedLink[] | null = null;
     let lastError: unknown = new Error("global linking made no attempts");
@@ -259,11 +282,27 @@ export async function linkGlobal(opts: {
         lastError = error;
         const reason = error instanceof Error ? error.message : String(error);
         prompt = `${basePrompt}\n\nYour previous response was rejected: ${reason}\nRe-emit valid JSON for this finding only.`;
+        if (isModelLimitError(error)) break;
       }
     }
 
     if (resolved === null) {
-      journal.fail(unit, lastError instanceof Error ? lastError.message : String(lastError));
+      const message = lastError instanceof Error ? lastError.message : String(lastError);
+      journal.fail(unit, message);
+      failures.push({ findingId: finding.id, error: message });
+      await emit({
+        event: "global_finding",
+        index: index + 1,
+        total: findings.length,
+        c4Id,
+        findingId: finding.id,
+        status: "failed",
+        error: message,
+      });
+      if (isModelLimitError(lastError)) {
+        stoppedEarly = true;
+        break;
+      }
       continue;
     }
 
@@ -287,6 +326,34 @@ export async function linkGlobal(opts: {
 
     journal.done(unit);
     linked += 1;
+    await emit({
+      event: "global_finding",
+      index: index + 1,
+      total: findings.length,
+      c4Id,
+      findingId: finding.id,
+      status: "done",
+    });
+  }
+
+  await emit({
+    event: "global_done",
+    linked,
+    failed: failures.length,
+    pendingDrained,
+    stoppedEarly,
+  });
+
+  if (failures.length > 0) {
+    const remaining = findings.length - linked;
+    const suffix = stoppedEarly
+      ? ` Stopped early on a model limit; ${remaining} finding(s) remain unprocessed.`
+      : ` ${failures.length} finding(s) failed; ${remaining - failures.length} were not attempted.`;
+    throw new Error(
+      `global link failed for ${failures.length} finding(s); first error: ${failures[0].error}.` +
+        `${suffix} Rerun kg_build to retry only findings without a link status; ` +
+        "completed decisions are cached.",
+    );
   }
 
   return { linked, pendingQueued: 0, pendingDrained };

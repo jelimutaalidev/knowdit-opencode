@@ -25,6 +25,19 @@ test("persists raw finding, taxonomy, and provenance", async () => {
   assert.equal(ctx.db.get<{ n: number }>("select count(*) n from project_finding")!.n, 1);
 });
 
+test("reuses existing project findings on retry instead of duplicating", async () => {
+  const { ctx, llm } = await fakeCtx({ findings: [finding()] });
+  const first = await extractFindings(ctx);
+  const calls = llm.calls;
+
+  const second = await extractFindings(ctx);
+
+  assert.deepEqual(second.rawIds, first.rawIds);
+  assert.equal(llm.calls, calls);
+  assert.equal(ctx.db.get<{ n: number }>("select count(*) n from audit_finding")!.n, 1);
+  assert.equal(ctx.db.get<{ n: number }>("select count(*) n from project_finding")!.n, 1);
+});
+
 test("rejects an unknown taxonomy pair and writes nothing", async () => {
   const { ctx } = await fakeCtx({ findings: [{ ...finding(), subcategory: "Nope" }] });
   await assert.rejects(() => extractFindings(ctx), /unknown subcategory/i);

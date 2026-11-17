@@ -102,14 +102,40 @@ export async function extractSemantics(
   ctx: StageContext,
 ): Promise<{ rawIds: number[] }> {
   const projectId = findProject(ctx);
+
+  // A crash between the insert transaction and the journal update makes the
+  // stage look unfinished on resume. Reuse what the project already owns
+  // instead of asking the model again and inserting duplicate rows.
+  if (projectId !== null) {
+    const existing = ctx.db.all<{ id: number }>(
+      `select semantic_node_id as id
+         from project_semantic
+        where project_id = ?
+        order by semantic_node_id`,
+      [projectId],
+    );
+    if (existing.length > 0) {
+      return { rawIds: existing.map((row) => row.id) };
+    }
+  }
+
   const categories = projectId === null ? [] : projectCategories(ctx, projectId);
   const materials = buildProjectMaterials(ctx);
   const chunks = chunkByBudget(materials, DEFAULT_CHUNK_TOKENS);
   const collected: SemanticItem[] = [];
 
-  for (const chunk of chunks) {
+  for (let index = 0; index < chunks.length; index++) {
+    await ctx.onProgress?.({
+      title: "KNOWDIT build",
+      stage: "semantics",
+      contest: ctx.contest.c4Id,
+      detail: `Extracting semantics · chunk ${index + 1}/${chunks.length} · C4 ${ctx.contest.c4Id}`,
+      completed: index,
+      total: chunks.length,
+    });
+
     const { value } = await ctx.llm.json({
-      prompt: buildExtractSemanticsPrompt({ chunk, schemaHint: "", categories }),
+      prompt: buildExtractSemanticsPrompt({ chunk: chunks[index], schemaHint: "", categories }),
       validate: validateSemantics(ctx.contest.sourceFiles),
     });
     collected.push(...value);

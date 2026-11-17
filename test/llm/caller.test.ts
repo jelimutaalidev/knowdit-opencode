@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLlmCaller } from "../../.opencode/plugins/knowdit/src/llm/caller.ts";
+import { createLlmCaller, ModelLimitError } from "../../.opencode/plugins/knowdit/src/llm/caller.ts";
 import { cacheKey, fileCache } from "../../.opencode/plugins/knowdit/src/llm/cache.ts";
 import { extractJson, JsonTruncatedError } from "../../.opencode/plugins/knowdit/src/llm/json.ts";
 
@@ -58,6 +58,25 @@ test("cache hit avoids a second model call", async () => {
   });
   await caller.json({ key: "same", prompt: "p", validate: ok({ a: 1 }) });
   await caller.json({ key: "same", prompt: "p", validate: ok({ a: 1 }) });
+  assert.equal(calls, 1);
+});
+
+test("stops immediately when the provider reports a model limit", async () => {
+  let calls = 0;
+  const caller = createLlmCaller({
+    generate: async () => {
+      calls += 1;
+      throw new Error("Free usage limit reached. Free models work in OpenCode on a schedule.");
+    },
+    cache: new Map(),
+    maxAttempts: 3,
+  });
+
+  await assert.rejects(
+    () => caller.json({ key: "k", prompt: "p", validate: ok({ a: 1 }) }),
+    (error: unknown) =>
+      error instanceof ModelLimitError && /rerun kg_build/i.test(error.message),
+  );
   assert.equal(calls, 1);
 });
 

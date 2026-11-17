@@ -4,12 +4,16 @@ import type { Journal } from "../journal.ts";
 import type { LlmCaller } from "../llm/types.ts";
 import type { Severity } from "../domain/validate.ts";
 
+export type ProgressFn = (update: Record<string, unknown>) => void | Promise<void>;
+
 export type StageContext = {
   db: KgDb;
   llm: LlmCaller;
   journal: Journal;
   contest: ManifestContest;
   datasetDir: string;
+  /** Nested stage progress (for example, one event per report chunk). */
+  onProgress?: ProgressFn;
 };
 
 export type SemanticFunctionItem = {
