@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { dedupSemantics, extractSemantics } from "../../.opencode/plugins/knowdit/src/pipeline/extract-semantics.ts";
 import { fakeCtx } from "../helpers/ctx.ts";
 
@@ -49,4 +51,23 @@ test("rejects a semantic with no functions or a file outside the snapshot", asyn
   const badFile = await fakeCtx({ semantics: [sem("Swap", { functions: [{ name: "swap", contract: "src/Missing.sol" }] })] });
   await assert.rejects(() => extractSemantics(badFile.ctx), /not in the snapshot/i);
   assert.equal(badFile.ctx.db.get<{ n: number }>("select count(*) n from semantic_node")!.n, 0);
+});
+
+test("sizes extraction chunks from the model context window", async () => {
+  const big = `contract Big {\n${"// padding line\n".repeat(12_000)}}\n`;
+  assert.ok(big.length > 100_000);
+
+  async function run(contextWindow?: number) {
+    const fake = await fakeCtx({ semantics: [sem("Swap")] });
+    writeFileSync(join(fake.ctx.datasetDir, "contracts", "229", "src", "Big.sol"), big);
+    fake.ctx.contest = { ...fake.ctx.contest, sourceFiles: ["src/A.sol", "src/Big.sol"] };
+    if (contextWindow !== undefined) fake.ctx.contextWindow = contextWindow;
+    await extractSemantics(fake.ctx);
+    const count = fake.prompts.length;
+    fake.cleanup();
+    return count;
+  }
+
+  assert.equal(await run(1_000_000), 1, "a ~200k-token window should fit one chunk");
+  assert.ok((await run()) > 1, "the 8k fallback should split the same project");
 });

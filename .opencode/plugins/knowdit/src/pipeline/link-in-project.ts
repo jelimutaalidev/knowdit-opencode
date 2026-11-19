@@ -126,6 +126,9 @@ export async function linkInProject(
        from semantic_node sn
        join project_semantic ps on ps.semantic_node_id = sn.id
       where ps.project_id = ?
+        and not exists (
+          select 1 from semantic_merge sm where sm.to_semantic_id = sn.id
+        )
       order by sn.id`,
     [projectId],
   );
@@ -137,6 +140,9 @@ export async function linkInProject(
        join audit_finding_category afc on afc.audit_finding_id = af.id
        join finding_category fc on fc.id = afc.finding_category_id
       where pf.project_id = ?
+        and not exists (
+          select 1 from finding_merge fm where fm.to_finding_id = af.id
+        )
       order by af.id`,
     [projectId],
   );

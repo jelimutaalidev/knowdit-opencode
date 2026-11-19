@@ -7,6 +7,8 @@ import { createSessionGenerate, type ModelRef } from "./src/llm/session-transpor
 const DEFAULT_MODEL: ModelRef = {
   providerID: "opencode",
   id: "deepseek-v4.1-flash-free",
+  // Reasoning effort: low | high | max. Keep at least "high" for extraction quality.
+  variant: "high",
 };
 
 export default Plugin.define({
@@ -14,6 +16,8 @@ export default Plugin.define({
   async setup(ctx) {
     const model = (ctx.options as { model?: ModelRef } | undefined)?.model ?? DEFAULT_MODEL;
     const dataDir = fileURLToPath(new URL("../../../data/", import.meta.url));
+    const info = ctx.model.get(model.providerID, model.id);
+    const contextWindow = info?.limit?.input ?? info?.limit?.context;
 
     await ctx.tool.transform((editor) => {
       registerKnowditTools(
@@ -21,6 +25,7 @@ export default Plugin.define({
         buildHandlers({
           dataDir,
           model,
+          contextWindow,
           generate: createSessionGenerate(ctx, {
             scratchDir: `${dataDir}llm-scratch/`,
             model,

@@ -4,7 +4,8 @@ import type { KgDb } from "../db/client.ts";
 import type { Manifest } from "../dataset/snapshot.ts";
 import type { IntegrityReport } from "../integrity.ts";
 import type { Journal } from "../journal.ts";
-import type { LlmCaller } from "../llm/types.ts";
+import type { LlmCaller, ModelRef } from "../llm/types.ts";
+import { PIPELINE_VERSION } from "../version.ts";
 import { categorizeProject } from "./categorize.ts";
 import { extractFindings } from "./extract-findings.ts";
 import { extractSemantics } from "./extract-semantics.ts";
@@ -20,8 +21,14 @@ export type BuildOptions = {
   concurrency?: 1;
   force?: boolean;
   resetAll?: boolean;
+  /** Recorded in the journal when `resetAll` clears the KG and units. */
+  resetReason?: string;
   /** Receives stage-level updates so the tool UI can show live progress. */
   onProgress?: ProgressFn;
+  /** Model input window in tokens; sizes extraction chunks like the reference. */
+  contextWindow?: number;
+  /** Model identity/effort; part of the journal fingerprint. */
+  model?: ModelRef;
 };
 
 export type BuildResult = {
@@ -36,6 +43,27 @@ type BuildDeps = BuildOptions & {
   llm: LlmCaller;
   journal: Journal;
 };
+
+/**
+ * Identity of everything a journaled unit depends on: dataset snapshot,
+ * pipeline/prompt contract, model effort, and prompt window. Resuming under a
+ * different identity is refused so a rebuild cannot mix qualities.
+ */
+export function buildFingerprint(input: {
+  manifestGeneratedAt: string;
+  contextWindow?: number;
+  model?: ModelRef;
+}): string {
+  const model = input.model
+    ? `${input.model.providerID}/${input.model.id}/${input.model.variant ?? ""}`
+    : "unspecified";
+  return [
+    `pipeline:${PIPELINE_VERSION}`,
+    `manifest:${input.manifestGeneratedAt}`,
+    `window:${input.contextWindow && input.contextWindow > 0 ? input.contextWindow : "auto"}`,
+    `model:${model}`,
+  ].join("|");
+}
 
 function hasMergeRows(db: KgDb): boolean {
   return (
@@ -216,6 +244,34 @@ function countFindingsMissingGlobalStatus(db: KgDb, c4Ids: readonly number[]): n
   );
 }
 
+/**
+ * Findings owned by a project that have no semantic link to a semantic from
+ * that same project. A `findings` rerun after `link` was journaled done leaves
+ * these behind; the link stage must be repaired even though its unit is done.
+ */
+function countFindingsMissingInProjectLinks(db: KgDb, c4Id: number): number {
+  return (
+    db.get<{ n: number }>(
+      `select count(*) n
+         from project_finding pf
+         join project_platform pp on pp.project_id = pf.project_id
+        where pp.platform_id = ?
+          and not exists (
+            select 1 from finding_merge fm where fm.to_finding_id = pf.audit_finding_id
+          )
+          and not exists (
+            select 1
+              from semantic_finding_link sfl
+              join project_semantic ps
+                on ps.semantic_node_id = sfl.semantic_node_id
+               and ps.project_id = pf.project_id
+             where sfl.audit_finding_id = pf.audit_finding_id
+          )`,
+      [`c4-${c4Id}`],
+    )?.n ?? 0
+  );
+}
+
 export async function buildKg(opts: BuildDeps): Promise<BuildResult> {
   const { db, llm, journal } = opts;
   const manifestPath = join(opts.dataDir, "manifest.json");
@@ -226,6 +282,11 @@ export async function buildKg(opts: BuildDeps): Promise<BuildResult> {
   }
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
   const c4Ids = opts.c4Ids ?? manifest.contests.map((contest) => contest.c4Id);
+  const fingerprint = buildFingerprint({
+    manifestGeneratedAt: manifest.generatedAt,
+    contextWindow: opts.contextWindow,
+    model: opts.model,
+  });
 
   if (opts.force && hasMergeRows(db)) {
     throw new Error(
@@ -233,9 +294,14 @@ export async function buildKg(opts: BuildDeps): Promise<BuildResult> {
     );
   }
 
+  // Refuse a stale resume before mutating anything. `reset_all` is the
+  // explicit escape hatch and clears the journal meta below.
+  if (!opts.resetAll) journal.ensureFingerprint(fingerprint);
+
   if (opts.resetAll) {
     resetKg(db);
-    journal.resetAll();
+    journal.resetAll(opts.resetReason ?? "kg_build reset_all");
+    journal.ensureFingerprint(fingerprint);
   } else if (opts.force) {
     for (const c4Id of c4Ids) {
       resetContest(db, c4Id);
@@ -282,6 +348,7 @@ export async function buildKg(opts: BuildDeps): Promise<BuildResult> {
       contest,
       datasetDir: opts.dataDir,
       onProgress: progress,
+      contextWindow: opts.contextWindow,
     };
     const unit = (stage: string) => ({ stage, c4Id, unitIndex: 0 });
     const stageStart = (stage: string) => async () => {
@@ -307,8 +374,24 @@ export async function buildKg(opts: BuildDeps): Promise<BuildResult> {
       onStart: stageStart("findings"),
       ran,
     });
+    const missingInProjectLinks = countFindingsMissingInProjectLinks(db, c4Id);
+    const repairingLink =
+      journal.isDone(unit("link")) && missingInProjectLinks > 0;
     await runStage(journal, unit("link"), () => linkInProject(ctx), {
-      onStart: stageStart("link"),
+      force: repairingLink,
+      onStart: async () => {
+        await stageStart("link")();
+        if (repairingLink) {
+          await progress({
+            title: "KNOWDIT build",
+            stage: "link",
+            contest: c4Id,
+            detail:
+              `Repairing ${missingInProjectLinks} finding(s) without an in-project link ` +
+              `· C4 ${c4Id}`,
+          });
+        }
+      },
       ran,
     });
     const merge = await runStage(journal, unit("merge"), () => mergeContest(ctx), {
@@ -384,7 +467,15 @@ export async function buildKg(opts: BuildDeps): Promise<BuildResult> {
   await runStage(
     journal,
     globalUnit,
-    () => linkGlobal({ db, llm, journal, c4Ids: active, onProgress: globalProgress }),
+    () =>
+      linkGlobal({
+        db,
+        llm,
+        journal,
+        c4Ids: active,
+        contextWindow: opts.contextWindow,
+        onProgress: globalProgress,
+      }),
     {
       force: repairingGlobal,
       ran,

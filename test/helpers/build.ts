@@ -5,6 +5,7 @@ import { openKg, seedReferenceTables, type KgDb } from "../../.opencode/plugins/
 import { writeManifest, type Manifest } from "../../.opencode/plugins/knowdit/src/dataset/snapshot.ts";
 import { openJournal, type Journal } from "../../.opencode/plugins/knowdit/src/journal.ts";
 import type { LlmCaller } from "../../.opencode/plugins/knowdit/src/llm/types.ts";
+import { buildFingerprint } from "../../.opencode/plugins/knowdit/src/pipeline/build.ts";
 
 export type FakeBuildOptions = {
   contests: number[];
@@ -13,6 +14,10 @@ export type FakeBuildOptions = {
   failContest?: number;
   canned?: boolean;
   dbPath?: string;
+  /** Model input window used when binding the journal fingerprint. */
+  contextWindow?: number;
+  /** Set false to emulate a journal written before fingerprinting existed. */
+  bindFingerprint?: boolean;
 };
 
 export type FakeBuild = {
@@ -109,25 +114,24 @@ function scriptedValue(
   }
 
   if (prompt.includes('"semantic_evidence"')) {
-    const findingId = /^### (F-\d+)$/m.exec(prompt)?.[1];
-    const candidateId = /^ID: (\d+)$/m.exec(prompt)?.[1];
-    if (!findingId || !candidateId) {
+    const findingIds = [...prompt.matchAll(/^### (F-\d+)$/gm)].map((match) => match[1]);
+    const candidateId = /^Candidate ID: (\d+)$/m.exec(prompt)?.[1];
+    if (findingIds.length === 0 || !candidateId) {
       throw new Error("fakeBuild: global link prompt lacks a finding id or candidate id");
     }
     return {
-      links: [
-        {
-          finding_id: findingId,
-          reasoning: "fake global link",
-          semantic_evidence: [
-            {
-              semantic_id: Number(candidateId),
-              strength: "Medium",
-              why_finding_can_fire: "fake tangential relation",
-            },
-          ],
-        },
-      ],
+      links: findingIds.map((findingId) => ({
+        finding_id: findingId,
+        reasoning: "fake global link",
+        semantic_evidence: [
+          {
+            semantic_id: Number(candidateId),
+            strength: "Medium",
+            why_finding_can_fire:
+              "fake tangential relation between the finding and this candidate semantic",
+          },
+        ],
+      })),
     };
   }
 
@@ -197,6 +201,14 @@ export async function fakeBuild(opts: FakeBuildOptions): Promise<FakeBuild> {
   seedReferenceTables(db);
 
   const baseJournal = await openJournal(join(root, "runs.sqlite"));
+  if (opts.bindFingerprint !== false) {
+    baseJournal.ensureFingerprint(
+      buildFingerprint({
+        manifestGeneratedAt: manifest.generatedAt,
+        contextWindow: opts.contextWindow,
+      }),
+    );
+  }
   const order: string[] = [];
   let currentC4 = opts.contests[0] ?? 0;
 

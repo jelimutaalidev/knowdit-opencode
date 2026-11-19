@@ -47,6 +47,10 @@ export const TOOL_SCHEMAS: Record<string, unknown> = {
         description: "Reset and rebuild these contests; rejected once merge rows exist",
       },
       resetAll: { type: "boolean", description: "Clear the KG and journal before building" },
+      resetReason: {
+        type: "string",
+        description: "Why the reset is happening; recorded in the journal",
+      },
     },
     additionalProperties: false,
   },

@@ -16,6 +16,7 @@ const REPORT_MATERIALS_HEADER = text("report_materials_header.txt");
 const CATEGORIZE_SUFFIX = text("categorize_suffix.txt");
 const EXTRACT_SEMANTICS_SUFFIX = text("extract_semantics_suffix.txt");
 const EXTRACT_FINDINGS_SUFFIX = text("extract_findings_suffix.txt");
+const REPAIR_FINDINGS = text("repair_findings.txt");
 const IN_PROJECT_LINK = text("in_project_link.txt");
 const MERGE_SEMANTICS = text("merge_semantics.txt");
 const MERGE_FINDINGS = text("merge_findings.txt");
@@ -38,6 +39,17 @@ function replaceToolUsage(section: string, output: string): string {
 
 function known(categories: readonly string[]): string {
   return categories.length === 0 ? "None" : categories.join(", ");
+}
+
+/**
+ * Replace `{placeholder}` tokens in one pass. Substituted text is never
+ * rescanned, and replacement-function semantics keep `$&`, `$'`, and `$``
+ * literal instead of expanding them like `String.replace` patterns.
+ */
+function fill(template: string, values: Readonly<Record<string, string>>): string {
+  return template.replace(/\{([a-z_]+)\}/g, (placeholder, key: string) =>
+    Object.prototype.hasOwnProperty.call(values, key) ? values[key] : placeholder,
+  );
 }
 
 export function taxonomyPrompt(): string {
@@ -81,7 +93,7 @@ export function buildExtractSemanticsPrompt(input: {
   categories: readonly string[];
 }): string {
   const suffix = replaceToolUsage(
-    EXTRACT_SEMANTICS_SUFFIX.replace("{known_categories}", known(input.categories)),
+    fill(EXTRACT_SEMANTICS_SUFFIX, { known_categories: known(input.categories) }),
     'Return one JSON object: {"semantics": [ ... ]} where each semantic is ' +
       `{"name": string, "definition": string, "description": string, "category": string, "functions": [{"name": string, "contract": string, "signature"?: string}]}. ${input.schemaHint}`,
   );
@@ -96,11 +108,55 @@ export function buildExtractFindingsPrompt(input: {
   categories: readonly string[];
 }): string {
   const suffix = replaceToolUsage(
-    EXTRACT_FINDINGS_SUFFIX.replace("{known_categories}", known(input.categories)),
+    fill(EXTRACT_FINDINGS_SUFFIX, { known_categories: known(input.categories) }),
     'Return one JSON object: {"findings": [ ... ]} where each finding is ' +
       `{"title": string, "severity": "High"|"Medium"|"Low", "category": string, "subcategory": string, "root_cause": string, "description": string, "patterns": string, "exploits": string}. ${input.schemaHint}`,
   );
   return withRole(reportUserPrefix() + input.chunk + suffix);
+}
+
+export type RejectedFindingInput = {
+  title: string;
+  reason: string;
+  item: unknown;
+};
+
+/**
+ * Repair prompt for a chunk whose extraction returned items that failed
+ * per-item validation. It carries the same report material and taxonomy so
+ * the model can ground the correction, plus the exact rejection reason and
+ * raw item for each rejected finding.
+ */
+export function buildFindingRepairPrompt(input: {
+  chunk: string;
+  acceptedFindings: readonly { title: string; rootCause: string }[];
+  rejected: readonly RejectedFindingInput[];
+  schemaHint?: string;
+}): string {
+  const rejectedText =
+    input.rejected.length === 0
+      ? "None"
+      : input.rejected
+          .map(
+            (entry, index) =>
+              `#### Rejected finding ${index + 1}\n` +
+              `- Title: ${entry.title}\n` +
+              `- Reason: ${entry.reason}\n` +
+              `- Item: ${JSON.stringify(entry.item)}\n`,
+          )
+          .join("\n");
+  const acceptedText =
+    input.acceptedFindings.length === 0
+      ? "None"
+      : input.acceptedFindings
+          .map((entry) => `- ${entry.title} — root cause: ${entry.rootCause}`)
+          .join("\n");
+  const suffix = fill(REPAIR_FINDINGS, {
+    rejected_findings: rejectedText,
+    accepted_titles: acceptedText,
+    schema_hint: input.schemaHint ?? "",
+  });
+  return withRole(reportUserPrefix() + input.chunk + "\n" + suffix);
 }
 
 export function buildInProjectLinkPrompt(input: {
@@ -108,9 +164,11 @@ export function buildInProjectLinkPrompt(input: {
   semantics: string;
   findings: string;
 }): string {
-  const body = IN_PROJECT_LINK.replace("{known_categories}", known(input.categories))
-    .replace("{semantics_block}", input.semantics)
-    .replace("{findings_block}", input.findings);
+  const body = fill(IN_PROJECT_LINK, {
+    known_categories: known(input.categories),
+    semantics_block: input.semantics,
+    findings_block: input.findings,
+  });
   return withRole(`${body.trimEnd()}\n\n${JSON_RULE}\n`);
 }
 
@@ -121,11 +179,12 @@ export function buildMergePrompt(input: {
   schemaHint?: string;
 }): string {
   const template = input.kind === "semantic" ? MERGE_SEMANTICS : MERGE_FINDINGS;
-  const filled = template
-    .replace("{existing_semantics}", input.existing)
-    .replace("{existing_findings}", input.existing)
-    .replace("{new_semantics}", input.incoming)
-    .replace("{new_findings}", input.incoming);
+  const filled = fill(template, {
+    existing_semantics: input.existing,
+    existing_findings: input.existing,
+    new_semantics: input.incoming,
+    new_findings: input.incoming,
+  });
   const schema =
     input.kind === "semantic"
       ? 'Return {"decisions": [{"reason": string, "new_semantic_name": string, "merge_target_ids": number[], "updated_description"?: string, "appended_description"?: string}]}.'
@@ -167,14 +226,16 @@ export function buildFindingLinkEntry(input: {
   patterns: string;
   exploits: string;
 }): string {
-  return FINDING_ENTRY.replace("{finding_id}", input.findingId)
-    .replace("{known_project_categories}", known(input.projectCategories))
-    .replace("{title}", input.title)
-    .replace("{severity}", input.severity)
-    .replace("{category}", input.category)
-    .replace("{subcategory}", input.subcategory)
-    .replace("{root_cause}", input.rootCause)
-    .replace("{description}", input.description)
-    .replace("{patterns}", input.patterns)
-    .replace("{exploits}", input.exploits);
+  return fill(FINDING_ENTRY, {
+    finding_id: input.findingId,
+    known_project_categories: known(input.projectCategories),
+    title: input.title,
+    severity: input.severity,
+    category: input.category,
+    subcategory: input.subcategory,
+    root_cause: input.rootCause,
+    description: input.description,
+    patterns: input.patterns,
+    exploits: input.exploits,
+  });
 }

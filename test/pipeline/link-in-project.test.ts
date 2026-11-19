@@ -60,6 +60,78 @@ test("writes one High edge per pair with the exact synthetic evidence", async ()
   assert.ok(inProjectEvidence().startsWith(IN_PROJECT_LINK_EVIDENCE_PREFIX));
 });
 
+test("ignores canonical rows that only gained provenance through a cross-project merge", async () => {
+  const { ctx, llm, prompts } = await seededCtx({
+    semantics: 1,
+    findings: 1,
+    links: [[0, [0]]],
+  });
+  const projectId = ctx.db.get<{ id: number }>("select id from project limit 1")!.id;
+  const taxonomy = ctx.db.get<{ id: number }>(
+    "select id from finding_category where category = ? and name = ?",
+    ["Arithmetic", "Integer Overflow"],
+  )!;
+
+  const canonicalSemantic = ctx.db.run(
+    "insert into semantic_node (name, definition, description, category) values (?, ?, ?, ?)",
+    ["Canonical Semantic", "def", "desc", "Dexes"],
+  ).lastInsertRowid;
+  ctx.db.run(
+    "insert into project_semantic (project_id, semantic_node_id) values (?, ?)",
+    [projectId, canonicalSemantic],
+  );
+  const foreignSemantic = ctx.db.run(
+    "insert into semantic_node (name, definition, description, category) values (?, ?, ?, ?)",
+    ["Foreign Semantic", "def", "desc", "Dexes"],
+  ).lastInsertRowid;
+  ctx.db.run(
+    `insert into semantic_merge (from_semantic_id, to_semantic_id, appended_description)
+     values (?, ?, 'note')`,
+    [foreignSemantic, canonicalSemantic],
+  );
+
+  const canonicalFinding = ctx.db.run(
+    `insert into audit_finding (title, severity, root_cause, description, patterns, exploits)
+     values ('Canonical Finding', 'High', 'rc', 'description', 'p', 'e')`,
+  ).lastInsertRowid;
+  ctx.db.run(
+    "insert into audit_finding_category (audit_finding_id, finding_category_id) values (?, ?)",
+    [canonicalFinding, taxonomy.id],
+  );
+  ctx.db.run(
+    "insert into project_finding (project_id, audit_finding_id) values (?, ?)",
+    [projectId, canonicalFinding],
+  );
+  const foreignFinding = ctx.db.run(
+    `insert into audit_finding (title, severity, root_cause, description, patterns, exploits)
+     values ('Foreign Finding', 'High', 'rc', 'description', 'p', 'e')`,
+  ).lastInsertRowid;
+  ctx.db.run(
+    "insert into audit_finding_category (audit_finding_id, finding_category_id) values (?, ?)",
+    [foreignFinding, taxonomy.id],
+  );
+  ctx.db.run(
+    `insert into finding_merge
+       (from_finding_id, to_finding_id, appended_description, appended_patterns, appended_exploits)
+     values (?, ?, 'note', 'note', 'note')`,
+    [foreignFinding, canonicalFinding],
+  );
+
+  const r = await linkInProject(ctx);
+
+  assert.equal(r.edges, 1);
+  assert.equal(llm.calls, 1);
+  assert.ok(!prompts[0].includes("Canonical Semantic"));
+  assert.ok(!prompts[0].includes("Canonical Finding"));
+  assert.equal(
+    ctx.db.get<{ n: number }>(
+      "select count(*) n from semantic_finding_link where audit_finding_id = ?",
+      [canonicalFinding],
+    )!.n,
+    0,
+  );
+});
+
 test("retries when a finding is omitted, and persists nothing on final failure", async () => {
   const { ctx, llm } = await seededCtx({ semantics: 2, findings: 2, links: [[0, [0]]] });
   await assert.rejects(() => linkInProject(ctx), /left finding/i);

@@ -5,6 +5,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VENDORED_EXCLUDES, isExcluded, writeSnapshot } from "../../.opencode/plugins/knowdit/src/dataset/snapshot.ts";
 
+test("copies the project README next to the snapshot", async () => {
+  const src = mkdtempSync(join(tmpdir(), "repo-"));
+  mkdirSync(join(src, "src"), { recursive: true });
+  writeFileSync(join(src, "src", "A.sol"), "contract A {}\n");
+  writeFileSync(join(src, "README.md"), "# Scope\n\nFee-on-transfer tokens are out of scope.\n");
+  const out = mkdtempSync(join(tmpdir(), "snap-"));
+
+  await writeSnapshot(
+    { localId: 8, c4Id: 316, slug: "s", title: "t", repoDir: src, reportPath: null },
+    out,
+  );
+
+  const copied = readFileSync(join(out, "README.md"), "utf8");
+  assert.match(copied, /Fee-on-transfer tokens are out of scope/);
+});
+
 test("has the 42 vendored exclude patterns", () => {
   assert.equal(VENDORED_EXCLUDES.length, 42);
   assert.equal(isExcluded("lib/forge-std/src/Test.sol"), true);

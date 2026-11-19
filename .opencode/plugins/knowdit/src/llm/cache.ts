@@ -2,8 +2,16 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LlmCache, ModelRef } from "./types.ts";
+import { PIPELINE_VERSION } from "../version.ts";
 
 const SAFE_KEY = /^[A-Za-z0-9_.-]+$/;
+
+/**
+ * Bump whenever prompt text, prompt construction, or response validation
+ * changes. It is part of the default cache key, so a rebuild cannot silently
+ * reuse a response produced under an older contract.
+ */
+export const CACHE_VERSION = PIPELINE_VERSION;
 
 function safeKey(key: string): string {
   return SAFE_KEY.test(key)
@@ -11,12 +19,20 @@ function safeKey(key: string): string {
     : createHash("sha256").update(key).digest("hex");
 }
 
-export function cacheKey(input: { prompt: string; model?: ModelRef }): string {
+export function cacheKey(input: {
+  prompt: string;
+  model?: ModelRef;
+  version?: string;
+}): string {
   const hash = createHash("sha256");
+  hash.update(input.version ?? CACHE_VERSION);
+  hash.update("\u0000");
   hash.update(input.prompt);
   if (input.model) {
     hash.update("\u0000");
     hash.update(`${input.model.providerID}/${input.model.id}`);
+    hash.update("\u0000");
+    hash.update(input.model.variant ?? "");
   }
   return hash.digest("hex");
 }

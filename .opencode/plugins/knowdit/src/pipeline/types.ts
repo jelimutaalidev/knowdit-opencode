@@ -14,6 +14,8 @@ export type StageContext = {
   datasetDir: string;
   /** Nested stage progress (for example, one event per report chunk). */
   onProgress?: ProgressFn;
+  /** Model input window in tokens; drives the per-chunk budget like the reference. */
+  contextWindow?: number;
 };
 
 export type SemanticFunctionItem = {

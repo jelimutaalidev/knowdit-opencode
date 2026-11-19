@@ -20,6 +20,8 @@ export type HandlerDeps = {
   generate: GenerateFn;
   model?: ModelRef;
   cost?: { input: number; output: number };
+  /** Model input window in tokens; sizes extraction chunks like the reference. */
+  contextWindow?: number;
 };
 
 type JournalUnitRow = {
@@ -158,7 +160,10 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
           concurrency: 1,
           force: asBoolean(options.force),
           resetAll: asBoolean(options.resetAll),
+          resetReason: asString(options.resetReason),
           onProgress: createProgressReporter({ logPath: progressLog, sink: ctx.progress }),
+          contextWindow: deps.contextWindow,
+          model: deps.model,
           db,
           llm,
           journal,

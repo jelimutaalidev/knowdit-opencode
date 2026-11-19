@@ -65,7 +65,15 @@ export function createLlmCaller(opts: LlmCallerOptions): LlmCaller {
 
       const cached = opts.cache.get(key);
       if (cached !== undefined) {
-        return result(input.validate(extractJson(cached)), input.prompt, cached);
+        try {
+          // A cached response that no longer satisfies the current validator
+          // is stale, not fatal: fall through and regenerate it. Validation
+          // rules (evidence floors, taxonomy, guards) get stricter over time,
+          // so a hard error here would permanently poison resume.
+          return result(input.validate(extractJson(cached)), input.prompt, cached);
+        } catch {
+          // Regenerate below.
+        }
       }
 
       let lastError: unknown = new Error("llm caller made no attempts");

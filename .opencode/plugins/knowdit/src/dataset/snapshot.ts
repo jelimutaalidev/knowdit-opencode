@@ -129,6 +129,18 @@ export async function writeSnapshot(
     });
   }
 
+  // The reference loader feeds the project README to the extractor too, so the
+  // snapshot has to carry it next to the sources.
+  for (const name of ["README.md", "readme.md", "Readme.md"] as const) {
+    const source = join(contest.repoDir, name);
+    try {
+      await copyFile(source, join(outDir, name));
+      break;
+    } catch {
+      continue;
+    }
+  }
+
   return { files, coreLoc };
 }
 

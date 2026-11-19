@@ -1,6 +1,13 @@
 import { DEFI_CATEGORIES, VULN_CATEGORIES } from "./domain/categories.ts";
 import type { KgDb } from "./db/client.ts";
-import { countVerbatimWords, HIGH_EVIDENCE_MIN_WORDS } from "./pipeline/link-global.ts";
+import {
+  emptyFindingNotes,
+  hasGroundedVerbatimQuote,
+  loadFindingCategories,
+  loadFindingNotes,
+  renderFinding,
+  type FindingLinkRow,
+} from "./pipeline/link-global.ts";
 import { IN_PROJECT_LINK_EVIDENCE_PREFIX } from "./pipeline/evidence.ts";
 
 export type IntegrityCheck = { name: string; passed: boolean; detail?: string };
@@ -34,28 +41,112 @@ function mergeCycleCount(db: KgDb, edgeTable: string, from: string, to: string):
   return count(db, sql);
 }
 
+type LinkFindingRow = FindingLinkRow & {
+  evidence: string;
+};
+
+function loadFindingRows(
+  db: KgDb,
+  ids: readonly number[],
+): Map<number, FindingLinkRow> {
+  const out = new Map<number, FindingLinkRow>();
+  if (ids.length === 0) return out;
+  const rows = db.all<FindingLinkRow>(
+    `select af.id, af.title, af.severity, af.root_cause, af.description, af.patterns,
+            af.exploits, fc.category, fc.name as subcategory
+       from audit_finding af
+       join audit_finding_category afc on afc.audit_finding_id = af.id
+       join finding_category fc on fc.id = afc.finding_category_id
+      where af.id in (${ids.map(() => "?").join(", ")})
+      order by af.id`,
+    ids,
+  );
+  for (const row of rows) {
+    if (!out.has(row.id)) out.set(row.id, row);
+  }
+  return out;
+}
+
+function descendantsOf(
+  childrenOf: ReadonlyMap<number, readonly number[]>,
+  root: number,
+): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  const stack = [...(childrenOf.get(root) ?? [])];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    stack.push(...(childrenOf.get(id) ?? []));
+  }
+  return out;
+}
+
 function highLinksWithoutVerbatimEvidence(db: KgDb): number {
-  const rows = db.all<{
-    title: string;
-    root_cause: string;
-    description: string;
-    patterns: string;
-    exploits: string;
-    evidence: string;
-  }>(
-    `select af.title, af.root_cause, af.description, af.patterns, af.exploits, sfl.evidence
+  const rows = db.all<LinkFindingRow>(
+    `select af.id, af.title, af.severity, af.root_cause, af.description, af.patterns,
+            af.exploits, fc.category, fc.name as subcategory, sfl.evidence
        from semantic_finding_link sfl
        join audit_finding af on af.id = sfl.audit_finding_id
+       join audit_finding_category afc on afc.audit_finding_id = af.id
+       join finding_category fc on fc.id = afc.finding_category_id
       where sfl.strength = 'High'
         and sfl.evidence not like ?`,
     [`${IN_PROJECT_LINK_EVIDENCE_PREFIX}%`],
   );
+  if (rows.length === 0) return 0;
+
+  // Links are persisted on the resolved merge target, but the High quote was
+  // copied from the raw finding's own prompt entry. Render the target and
+  // every folded descendant as its own finding so a raw that fell outside the
+  // 8-variant or 400-char rendering cap still grounds its quote.
+  const byId = new Map<number, FindingLinkRow>();
+  for (const row of rows) byId.set(row.id, row);
+
+  const childrenOf = new Map<number, number[]>();
+  for (const edge of db.all<{ from_id: number; to_id: number }>(
+    "select from_finding_id as from_id, to_finding_id as to_id from finding_merge",
+  )) {
+    const children = childrenOf.get(edge.to_id) ?? [];
+    children.push(edge.from_id);
+    childrenOf.set(edge.to_id, children);
+  }
+
+  const descendants = new Map<number, number[]>();
+  const needed = new Set<number>();
+  for (const id of byId.keys()) {
+    const ids = descendantsOf(childrenOf, id);
+    descendants.set(id, ids);
+    for (const descendant of ids) needed.add(descendant);
+  }
+  for (const [id, row] of loadFindingRows(db, [...needed])) {
+    if (!byId.has(id)) byId.set(id, row);
+  }
+
+  const notes = loadFindingNotes(db, [...byId.keys()]);
+  const categoryCache = new Map<number, string[]>();
+  const categoriesFor = (findingId: number): string[] => {
+    if (!categoryCache.has(findingId)) {
+      categoryCache.set(findingId, loadFindingCategories(db, findingId));
+    }
+    return categoryCache.get(findingId)!;
+  };
+  const bodyFor = (row: FindingLinkRow): string =>
+    renderFinding(
+      row,
+      categoriesFor(row.id),
+      notes.get(row.id) ?? emptyFindingNotes(),
+    ).entry;
 
   return rows.filter((row) => {
-    const text = [row.title, row.root_cause, row.description, row.patterns, row.exploits].join(
-      "\n",
-    );
-    return countVerbatimWords(text, row.evidence) < HIGH_EVIDENCE_MIN_WORDS;
+    const bodies = [bodyFor(row)];
+    for (const id of descendants.get(row.id) ?? []) {
+      const child = byId.get(id);
+      if (child) bodies.push(bodyFor(child));
+    }
+    return !bodies.some((body) => hasGroundedVerbatimQuote(body, row.evidence));
   }).length;
 }
 
@@ -83,6 +174,31 @@ export function checkIntegrity(
         db,
         `select count(*) n from semantic_node sn
           where not exists (select 1 from project_semantic ps where ps.semantic_node_id = sn.id)`,
+      ),
+    ),
+  );
+
+  checks.push(
+    check(
+      "every_finding_has_category",
+      count(
+        db,
+        `select count(*) n from audit_finding af
+          where not exists (
+            select 1 from audit_finding_category afc
+             where afc.audit_finding_id = af.id
+          )`,
+      ),
+    ),
+  );
+
+  checks.push(
+    check(
+      "status_rows_have_finding",
+      count(
+        db,
+        `select count(*) n from finding_link_status fls
+          where not exists (select 1 from audit_finding af where af.id = fls.audit_finding_id)`,
       ),
     ),
   );
@@ -135,8 +251,20 @@ export function checkIntegrity(
     db,
     `select count(*) n from finding_category where category not in (${quoteList(VULN_CATEGORIES)})`,
   );
+  const badSemanticCategory = count(
+    db,
+    `select count(*) n from semantic_node
+      where category not in (${quoteList(DEFI_CATEGORIES)})`,
+  );
   checks.push(
-    check("enum_values", badSeverity + badStrength + badDefiCategory + badVulnerabilityCategory),
+    check(
+      "enum_values",
+      badSeverity +
+        badStrength +
+        badDefiCategory +
+        badVulnerabilityCategory +
+        badSemanticCategory,
+    ),
   );
 
   checks.push(

@@ -100,6 +100,41 @@ test("cache key is a stable sha256 over prompt and model", () => {
   assert.notEqual(cacheKey({ prompt: "p" }), cacheKey({ prompt: "p", model: { providerID: "a", id: "b" } }));
 });
 
+test("cache key separates reasoning effort variants", () => {
+  const base = { prompt: "p", model: { providerID: "opencode", id: "m" } };
+  assert.notEqual(
+    cacheKey({ ...base, model: { ...base.model, variant: "high" } }),
+    cacheKey({ ...base, model: { ...base.model, variant: "low" } }),
+  );
+});
+
+test("cache key carries the pipeline cache version", () => {
+  assert.notEqual(
+    cacheKey({ prompt: "p", version: "v1" }),
+    cacheKey({ prompt: "p", version: "v2" }),
+  );
+  assert.notEqual(cacheKey({ prompt: "p" }), cacheKey({ prompt: "p", version: "v1" }));
+});
+
+test("an invalid cached response is regenerated instead of rethrown", async () => {
+  let calls = 0;
+  const cache = new Map<string, string>([["k", '{"bad":true}']]);
+  const caller = createLlmCaller({
+    generate: async () => {
+      calls += 1;
+      return { text: '{"a":1}' };
+    },
+    cache,
+    maxAttempts: 3,
+  });
+
+  const r = await caller.json({ key: "k", prompt: "p", validate: ok({ a: 1 }) });
+
+  assert.deepEqual(r.value, { a: 1 });
+  assert.equal(calls, 1);
+  assert.equal(cache.get("k"), '{"a":1}');
+});
+
 test("file cache round-trips through disk", () => {
   const dir = mkdtempSync(join(tmpdir(), "cache-"));
   fileCache(dir).set("k", "v");

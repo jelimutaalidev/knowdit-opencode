@@ -1,6 +1,6 @@
 import { canonicalDefiCategory } from "../domain/validate.ts";
 import { buildExtractSemanticsPrompt } from "../prompts/index.ts";
-import { chunkByBudget } from "./chunk.ts";
+import { chunkByBudget, resolveChunkTokens } from "./chunk.ts";
 import { buildProjectMaterials } from "./materials.ts";
 import { ensureProject, findProject, projectCategories } from "./project.ts";
 import type { SemanticItem, StageContext } from "./types.ts";
@@ -121,7 +121,14 @@ export async function extractSemantics(
 
   const categories = projectId === null ? [] : projectCategories(ctx, projectId);
   const materials = buildProjectMaterials(ctx);
-  const chunks = chunkByBudget(materials, DEFAULT_CHUNK_TOKENS);
+  const overhead = Math.ceil(
+    buildExtractSemanticsPrompt({ chunk: "", schemaHint: "", categories }).length / 4,
+  );
+  const chunkTokens = resolveChunkTokens({
+    contextWindow: ctx.contextWindow,
+    overheadTokens: overhead,
+  });
+  const chunks = chunkByBudget(materials, chunkTokens);
   const collected: SemanticItem[] = [];
 
   for (let index = 0; index < chunks.length; index++) {

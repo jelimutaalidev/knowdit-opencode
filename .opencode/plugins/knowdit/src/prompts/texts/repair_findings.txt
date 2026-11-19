@@ -1,0 +1,25 @@
+## Instructions
+
+A previous extraction pass produced findings that failed validation. Re-emit each
+rejected finding below as a corrected finding.
+
+### Rejected Findings
+
+{rejected_findings}
+
+### Already Accepted Findings
+
+These findings passed validation. Do not emit them again:
+
+{accepted_titles}
+
+### Repair Rules
+
+- Fix only what the rejection reason names. Do not invent details that the
+  report excerpt above does not support.
+- Keep the original title unless the rejection reason is about the title.
+- Use a category and subcategory from the taxonomy above exactly as written.
+- Omit a rejected finding when the report excerpt does not support it as a
+  distinct vulnerability. An omitted finding is dropped.
+- Return one JSON object: {"findings": [ ... ]} with the same finding schema as
+  the extraction pass. {schema_hint}

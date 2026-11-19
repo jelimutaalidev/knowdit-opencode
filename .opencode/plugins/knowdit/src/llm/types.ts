@@ -1,4 +1,4 @@
-export type ModelRef = { providerID: string; id: string };
+export type ModelRef = { providerID: string; id: string; variant?: string };
 
 export type GenerateFn = (input: {
   prompt: string;

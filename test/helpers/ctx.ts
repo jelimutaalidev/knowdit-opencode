@@ -15,11 +15,19 @@ export type FakeScript = {
   categories?: string[];
   semantics?: SemanticItem[];
   findings?: FindingItem[];
+  /** Response to a finding-repair prompt; defaults to dropping every rejected item. */
+  repairFindings?: FindingItem[];
+  /** Throw this from a finding-repair prompt (for example, a ModelLimitError). */
+  repairError?: unknown;
   links?: { findingIndex: number; semanticIndices: number[] }[];
   globalLinks?: { semanticIndex: number; strength: Severity; evidence: string }[];
 };
 
 function scriptedValue(prompt: string, script: FakeScript): unknown {
+  if (prompt.includes("### Rejected Findings")) {
+    if (script.repairError) throw script.repairError;
+    return { findings: script.repairFindings ?? [] };
+  }
   if (prompt.includes('"project_name"')) {
     return {
       reasoning: "fake categorization",
