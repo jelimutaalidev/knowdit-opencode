@@ -28,7 +28,7 @@ ready for a clean rebuild.
 | Item | State |
 | --- | --- |
 | Pipeline version | `2026-11-19.p0p1.4` |
-| Test suite | 165/165 passing |
+| Test suite | 178/178 passing |
 | Dataset | 12 contests prepared |
 | KG / journal | Empty, no build fingerprint |
 | Rebuild | Pending explicit approval |
@@ -104,6 +104,28 @@ node scripts/verify-compat.ts --db data/kg.sqlite
 `verify-compat.ts` requires the reference binary. Set `KNOWDIT_BINARY` or pass
 `--binary` if it is not at the default location.
 
+## Checkpointing and moving machines
+
+The build is long and quota-bound, so build state is portable:
+
+```bash
+npm run state:snapshot                        # default location under ~/knowdit-state
+npm run state:snapshot -- --out ~/checkpoint  # explicit location
+npm run state:restore  -- --from ~/checkpoint --force
+```
+
+A bundle is self-contained: `kg.sqlite`, `runs.sqlite`, `dataset/`, `cache/`,
+and `identity.json` (commit, pipeline version, dataset and artifact hashes,
+journal fingerprint and unit counts). Snapshot refuses a dirty worktree, a
+running unit, or any directory that is not a previous bundle. Restore verifies
+every hash plus the commit and pipeline version before touching the target;
+replaced state is moved to `data/.restore-backup-*`, not deleted.
+
+Transfer the bundle with `rsync` or `rclone`; never commit build state. Do not
+run `dataset_prepare` when resuming. See the
+[cross-machine resume guide](docs/operations/cross-machine-resume.md) for flags,
+sequencing, and recovery.
+
 The compatibility gate checks that the reference binary:
 
 - accepts the database with `validate-db`;
@@ -114,7 +136,7 @@ The compatibility gate checks that the reference binary:
 
 ```text
 .opencode/plugins/knowdit/   Plugin entry, tools, pipeline, prompts, DB layer
-scripts/                     Reference schema generation and compatibility gate
+scripts/                     Compatibility gate, schema generation, state transfer
 test/                        Node test runner suites and fixtures
 docs/superpowers/            Phase 1 design spec and implementation plan
 notes/                       Quality-gate checklist
@@ -138,8 +160,8 @@ data/                        Runtime artifacts (gitignored)
 
 - `data/` is generated and gitignored. It contains the dataset snapshot, SQLite
   databases, response cache, and progress logs; never commit it.
-- To resume a build on another machine, copy the `data/` build state exactly and
-  do not run `dataset_prepare` first; see the
+- To resume a build on another machine, snapshot the state, transfer the bundle,
+  and restore it; do not run `dataset_prepare` first. See the
   [cross-machine resume guide](docs/operations/cross-machine-resume.md).
 - A full reset destroys cross-contest provenance. Do not reset or rebuild
   without an explicit decision.

@@ -57,12 +57,27 @@ Status: in progress. TDD for every production change. No rebuild/reset without e
 - [x] `semantic_node.category` included in the enum gate
 - [x] `reset_all` records its reason in `journal_meta` (survives fingerprint rebinding)
 
+## Operations
+
+- [x] Self-contained build-state bundle (`scripts/state.ts` + snapshot/restore CLIs)
+  - [x] `VACUUM INTO` copies of both databases; no WAL/SHM in the bundle
+  - [x] `identity.json` records commit, `PIPELINE_VERSION`, dataset manifest/tree
+        hashes, journal fingerprint and unit counts, and artifact hashes
+  - [x] Snapshot refuses a dirty worktree, a running unit, or an existing bundle
+        unless the matching flag is passed
+  - [x] Restore verifies every hash and the commit/pipeline identity before
+        touching the target
+  - [x] Replaced state moves to `data/.restore-backup-*`; a failed copy rolls back
+  - [x] CLI snapshot/restore round-trip covered by tests
+- [x] Cross-machine resume guide and `AGENTS.md` §13 use the scripts
+
 ## Verification gate
 
-- [x] `npm test` green (165/165)
+- [x] `npm test` green (178/178)
 - [ ] `scripts/verify-compat.ts` green — blocked on a clean rebuild; the
       existing `data/kg.sqlite` predates the fixes and fails Rust `validate-db`
       with partial-link-state rows (126 issues)
 - [x] Focused re-audit complete — 3 findings fixed (candidate order, repair echoes,
-      taxonomy gate); 165/165 green after the final version bump
+      taxonomy gate); 165/165 green after the final version bump, 178/178 with
+      the state-transfer tests added
 - [ ] Explicit user approval before rebuild/reset

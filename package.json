@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "state:snapshot": "node scripts/state-snapshot.ts",
+    "state:restore": "node scripts/state-restore.ts"
   },
   "dependencies": {
     "@opencode/plugin": "2.3.0"

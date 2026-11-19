@@ -7,6 +7,10 @@ Resume is defined by build state, not by the repository. The code, dataset
 manifest, KG, journal, cache, model, and context window must all be the same
 identity. Mixing any of them is refused by the journal fingerprint.
 
+The scripts in this guide implement that rule: they capture a verified,
+self-contained bundle and refuse to restore a bundle that does not match the
+checkout or the pipeline version.
+
 ## Invariants
 
 | Component | Requirement |
@@ -23,93 +27,128 @@ identity. Mixing any of them is refused by the journal fingerprint.
 `knowdit_dataset_prepare` while resuming** — it rewrites `generatedAt` and makes
 the journal unusable.
 
-## 1. Record identity before the build
+## What a bundle contains
 
-Pin the code:
-
-```bash
-git tag -a phase1-p0p1.4 -m "Phase 1 pipeline p0p1.4"
-git push origin phase1-p0p1.4
+```
+identity.json     commit, pipeline version, dataset hashes, journal state, artifact hashes
+kg.sqlite         consistent copy (VACUUM INTO), no WAL/SHM files
+runs.sqlite       consistent copy (VACUUM INTO), no WAL/SHM files
+dataset/          exact snapshot including manifest.json
+cache/            LLM response cache (omit only with --no-cache)
 ```
 
-After the first units have run, record:
+The dataset is small (about 3 MB for the 12-contest generation), so it travels
+inside the bundle. A single bundle is self-contained; there is no separate
+dataset download or Git LFS step.
+
+`data/tmp/`, `data/llm-scratch/`, and `data/progress.log` are **not** included.
+
+## 1. Pin the code
+
+The build identity includes the **commit**, so tag the exact commit you start
+from, not just the pipeline version:
 
 ```bash
-sha256sum data/dataset/manifest.json
-sqlite3 data/runs.sqlite \
-  "select value from journal_meta where key='build_fingerprint';"
+git tag -a phase1-build-<date> -m "Phase 1 build start"
+git push origin phase1-build-<date>
 ```
 
-Keep both values with the snapshot.
+`phase1-p0p1.4` is the pipeline checkpoint tag, but a build may start from a
+later commit (tooling or documentation changes do not alter the KG). Resume must
+check out the commit recorded in `identity.json`; restore refuses a mismatch.
 
 ## 2. Snapshot on the current machine
 
-Stop building first. Do not reset. `sqlite3 .backup` produces a consistent
-single-file copy even when the database uses WAL.
+Stop the build first. Do not reset, do not `dataset_prepare`.
 
 ```bash
-set -euo pipefail
-SNAP="${1:-$HOME/knowdit-state/$(date +%Y%m%d-%H%M%S)}"
-mkdir -p "$SNAP"
-
-sqlite3 data/kg.sqlite   ".backup '$SNAP/kg.sqlite'"
-sqlite3 data/runs.sqlite ".backup '$SNAP/runs.sqlite'"
-
-cp -a data/dataset "$SNAP/dataset"
-if [ -d data/cache ]; then cp -a data/cache "$SNAP/cache"; fi
-
-sha256sum data/dataset/manifest.json > "$SNAP/manifest.sha256"
-sqlite3 data/runs.sqlite \
-  "select value from journal_meta where key='build_fingerprint';" \
-  > "$SNAP/fingerprint.txt"
+npm run state:snapshot
+# or choose a location explicitly:
+npm run state:snapshot -- --out ~/knowdit-state/checkpoint-01
 ```
 
-Transfer over a private channel (SSH, private object storage, or Syncthing):
+Without `--out`, the default is
+`~/knowdit-state/fp-<fingerprint12>/<timestamp>/` (`nofp/` before the first
+fingerprint is bound).
+
+The script:
+
+- copies both databases with `VACUUM INTO`, so WAL content is included and the
+  output is a clean single file;
+- copies `dataset/` and `cache/`;
+- writes `identity.json` with commit, `PIPELINE_VERSION`, dataset manifest and
+  tree hashes, journal fingerprint and unit counts, and KG/journal/cache hashes;
+- refuses to run from a dirty worktree, over a running unit, or over an existing
+  bundle, unless the matching flag is passed (`--allow-dirty`,
+  `--allow-running`, `--force`);
+- only replaces a directory that contains `identity.json`; any other directory
+  is refused, and the output may not overlap `data/`.
+
+`--allow-running` is **crash recovery only**. Never snapshot while the build
+process is alive: the two databases are copied separately, so a live build could
+leave the KG and journal at different points. Wait for the run to stop (a quota
+error stops it cleanly).
+
+Verify the printed summary: commit, pipeline version, fingerprint, unit counts,
+and dataset hash.
+
+## 3. Transfer the bundle
+
+Over a private channel (SSH, private object storage, or a USB drive):
 
 ```bash
-rsync -av --partial "$SNAP/" user@other-machine:~/knowdit-state/import/
+# direct
+rsync -av --partial ~/knowdit-state/fp-<id>/<timestamp>/ \
+  user@other-machine:~/knowdit-state/import/
+
+# or via private object storage
+rclone copy ~/knowdit-state/fp-<id>/<timestamp> remote:knowdit-state/fp-<id>/<timestamp>
+rclone copy remote:knowdit-state/fp-<id>/<timestamp> ~/knowdit-state/import
 ```
 
-Never commit build state to the public repository.
+A USB drive is a valid backup or offline seed, but it is still a copy of the
+same bundle; do not copy `data/` directly while a build is running. Never commit
+build state to the public repository.
 
-## 3. Restore on the other machine
+## 4. Restore on the other machine
 
 ```bash
 cd ~/knowdit-opencode
 git fetch --all --tags
-git checkout phase1-p0p1.4
+git checkout <build-tag-or-commit>
 npm ci
 
-# Replace the target state completely, including stale WAL/SHM files.
-rm -f data/kg.sqlite data/kg.sqlite-wal data/kg.sqlite-shm
-rm -f data/runs.sqlite data/runs.sqlite-wal data/runs.sqlite-shm
-rm -rf data/dataset data/cache
-
-cp "$SNAP/kg.sqlite" "$SNAP/runs.sqlite" data/
-cp -a "$SNAP/dataset" data/
-if [ -d "$SNAP/cache" ]; then cp -a "$SNAP/cache" data/; fi
+npm run state:restore -- --from ~/knowdit-state/import
+# add --force when the target already contains build state
 ```
 
-## 4. Verify identity before resuming
+Before touching the target, restore verifies the bundle's KG, journal, dataset,
+and cache hashes against `identity.json`, then checks:
 
-Run these from the repository root:
+- the checked-out commit equals `identity.commit`;
+- `PIPELINE_VERSION` equals `identity.pipelineVersion`;
+- the bundle was not captured from a dirty worktree (unless `--allow-dirty`);
+- the target worktree is clean (unless `--allow-dirty`).
+
+If the target already has state and `--force` is given, the old
+`kg.sqlite`, `runs.sqlite`, `dataset/`, and `cache/` are moved to
+`data/.restore-backup-<timestamp>-<pid>/`, not deleted. `tmp/`, `llm-scratch/`,
+and `progress.log` are left alone. A failure during the copy rolls the old state
+back automatically.
+
+Restart OpenCode after restoring so the plugin loads the pinned code.
+
+## 5. Verify and resume
 
 ```bash
-git rev-parse HEAD
-sha256sum -c "$SNAP/manifest.sha256"
-cat "$SNAP/fingerprint.txt"
-sqlite3 data/runs.sqlite \
-  "select value from journal_meta where key='build_fingerprint';"
-sqlite3 data/runs.sqlite \
-  "select stage, status, count(*) from unit_status group by stage, status;"
+npm run state:snapshot -- --help    # flags and defaults
 ```
 
-The manifest hash and both fingerprint values must match. Then restart OpenCode
-so the plugin loads the pinned code, and run `knowdit_kg_status`.
-
-## 5. Resume
+The restore summary prints the commit, pipeline version, fingerprint, and unit
+counts. Then in OpenCode:
 
 ```text
+knowdit_kg_status
 knowdit_kg_build
 ```
 
@@ -133,22 +172,52 @@ it repairs the new batch without relinking the completed ones.
 - Snapshot after every batch; do not wait for a quota exhaustion.
 - Keep exactly one machine as the writer. Do not build on both machines against
   the same state.
+- Keep at least the last two bundles; format changes are not backward compatible
+  and a corrupted copy should not be the only copy.
 - Changing computers preserves progress; it does not reset an account quota.
 
 ## Failure modes
 
 | Symptom | Action |
 | --- | --- |
-| Fingerprint mismatch | Restore the exact commit, dataset manifest, model, and window. If that is impossible, `reset_all` and rebuild; never edit `journal_meta` by hand. |
-| Manifest hash mismatch | The dataset was regenerated or copied incorrectly. Restore the original `data/dataset`. |
-| Only `kg.sqlite` copied | Journal is missing; the build repeats. Copy both databases. |
-| Only `runs.sqlite` copied | Journal points at missing rows; copy the matching KG. |
-| Stale `-wal` / `-shm` files | Remove them before copying restored databases. |
+| `bundle was created at commit …` | Check out the tag/commit named in the error. Do not rewrite `identity.json`. |
+| `pipeline version … does not match` | The checkout is not the code that produced the bundle. Restore the matching commit. |
+| `journal has N running unit(s)` | The build is alive or crashed. Stop it first; use `--allow-running` only after a crash. |
+| `target already contains build state` | Re-run restore with `--force`; the previous state is backed up first. |
+| `bundle … hash does not match identity.json` | The copy is incomplete or corrupted. Re-transfer from the source machine. |
+| `refusing to replace …: it is not a snapshot bundle` | Pick a different `--out`. `--force` never deletes an unrelated directory. |
+| `snapshot output must not overlap the data directory` | Put the bundle outside the repository, for example `~/knowdit-state`. |
+| `worktree is dirty` | Commit or stash, or use `--allow-dirty` deliberately. A dirty bundle records `dirty: true` and needs the same flag on restore. |
+| Fingerprint mismatch in the build | The model, window, dataset manifest, or pipeline version differs. Restore the matching identity; if impossible, `reset_all` and rebuild. Never edit `journal_meta` by hand. |
 | Quota exhausted mid-stage | Resume the same build. Completed units and cached responses are retained. |
 | Two writers | Stop both, keep one state as authoritative, restore it on both, and continue on one machine only. |
+
+## Manual fallback
+
+Use this only if Node cannot run the scripts. The steps are the same; the
+scripts add hash verification and rollback.
+
+```bash
+set -euo pipefail
+SNAP="$HOME/knowdit-state/manual-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$SNAP"
+
+sqlite3 data/kg.sqlite   ".backup '$SNAP/kg.sqlite'"
+sqlite3 data/runs.sqlite ".backup '$SNAP/runs.sqlite'"
+cp -a data/dataset "$SNAP/dataset"
+[ -d data/cache ] && cp -a data/cache "$SNAP/cache"
+
+sha256sum data/dataset/manifest.json > "$SNAP/manifest.sha256"
+sqlite3 data/runs.sqlite \
+  "select value from journal_meta where key='build_fingerprint';" \
+  > "$SNAP/fingerprint.txt"
+```
+
+Restore by removing the target `kg.sqlite`, `runs.sqlite`, `dataset/`, and
+`cache/` (including stale `-wal`/`-shm`), copying the bundle in, and comparing
+`sha256sum -c manifest.sha256` plus both fingerprint values before resuming.
 
 ## What not to copy
 
 `data/tmp/`, `data/llm-scratch/`, and `data/progress.log` are scratch and
-diagnostics. Skip them. Copy `dataset`, `cache`, `kg.sqlite`, and `runs.sqlite`
-only.
+diagnostics. Copy `dataset`, `cache`, `kg.sqlite`, and `runs.sqlite` only.

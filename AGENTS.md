@@ -27,7 +27,7 @@ Treat this as a starting checkpoint, then verify against the repository.
 | --- | --- |
 | Branch | `knowdit-kg-phase1` |
 | `PIPELINE_VERSION` | `2026-11-19.p0p1.4` |
-| Test suite | 165/165 passing (`npm test`) |
+| Test suite | 178/178 passing (`npm test`) |
 | Dataset | Prepared, 12 contests, `data/dataset/manifest.json` exists |
 | `data/kg.sqlite` | **Empty** (full reset executed) |
 | `data/runs.sqlite` | **Empty journal**, no build fingerprint, reset reason recorded |
@@ -127,8 +127,12 @@ npm test
 scripts/
   reference-schema.sh      Rebuild schema.sql + schema fixture from Rust reference
   verify-compat.ts         Rust validate-db / snapshot / stats conformance gate
+  state.ts                 Snapshot/restore library: hashes, identity, rollback
+  state-snapshot.ts        CLI: capture a self-contained build-state bundle
+  state-restore.ts         CLI: verify and restore a bundle on another machine
 
 test/                      Node test runner suites, fixtures, fake LLM/DB helpers
+test/scripts/state.test.ts Snapshot/restore and CLI round-trip tests
 notes/p0-p1-checklist.md   Authoritative quality-gate status
 data/                      Runtime artifacts (gitignored, never commit)
 ```
@@ -261,9 +265,10 @@ data/progress.log      JSONL progress mirror (best-effort)
 ### Tests
 
 ```bash
-npm test                                   # full suite (165 tests)
+npm test                                   # full suite (178 tests)
 node --test test/pipeline/merge.test.ts    # one file
 node --test test/pipeline/*.test.ts        # one area
+node --test test/scripts/state.test.ts     # state snapshot/restore
 ```
 
 There is no separate typecheck or lint script. A syntax/type regression is
@@ -288,6 +293,24 @@ Typical build arguments:
 
 On a **fresh machine with no journal**, omit `resetAll`; there is nothing to
 clear. Use it only when an existing journal or KG must be discarded.
+
+### Build-state transfer
+
+```bash
+npm run state:snapshot -- --out ~/knowdit-state/checkpoint-01
+npm run state:restore  -- --from ~/knowdit-state/import [--force]
+```
+
+`state:snapshot` refuses a dirty worktree, a running unit, or an existing
+bundle unless `--allow-dirty`, `--allow-running`, or `--force` is given.
+`--force` replaces only a directory that contains `identity.json`, and the
+output may not overlap `data/`. It writes `identity.json` with the commit,
+`PIPELINE_VERSION`, dataset hashes, journal fingerprint/unit counts, and
+artifact hashes. `state:restore` verifies
+every hash and the commit/pipeline identity before touching the target; with
+`--force` the previous state moves to `data/.restore-backup-*` instead of being
+deleted, and a failed copy rolls back. See
+[`docs/operations/cross-machine-resume.md`](docs/operations/cross-machine-resume.md).
 
 ### Compatibility gate
 
@@ -344,7 +367,9 @@ Code conventions:
 4. If the journal is not empty or the fingerprint is stale, run
    `knowdit_kg_build` with `resetAll: true` and a specific `resetReason`.
    Otherwise omit `resetAll`.
-5. Run `knowdit_kg_build` with no `c4Ids` to build the whole manifest.
+5. Run `knowdit_kg_build` with no `c4Ids` to build the whole manifest, or in
+   batches of two or three contests. Run `npm run state:snapshot` after every
+   batch (§13) so an exhausted quota never costs the batch.
 6. On interruption, rerun the same call. Do not reset and do not change the
    model. Completed units are skipped; cached responses are reused.
 7. Check `knowdit_kg_status` for failures and unresolved units.
@@ -360,13 +385,23 @@ reproducible from cache at `concurrency = 1`.
 
 Two branches; do not mix them.
 
-**Resuming an interrupted build** (a journal already exists): transfer the exact
-build state; never run `dataset_prepare`. Full procedure, commands, and identity
-checks are in
+**Resuming an interrupted build** (a journal already exists): check out the
+same commit, restore the bundle, and never run `dataset_prepare`.
+
+```bash
+git fetch --all --tags
+git checkout <build-tag-or-commit>   # the commit recorded in identity.json
+npm ci
+npm run state:restore -- --from ~/knowdit-state/import   # --force if state exists
+```
+
+The bundle already contains `dataset/`, so nothing else has to be copied. Take
+it on the source machine with `npm run state:snapshot`. The short rule: same
+commit, same `manifest.json` bytes, same model/variant/window, one consistent
+`kg.sqlite` + `runs.sqlite`, and one writer at a time. Tag the exact commit when
+you start the build; restore refuses a commit or pipeline mismatch, verifies
+every hash, and backs up replaced state. Full rules, flags, and failure modes:
 [`docs/operations/cross-machine-resume.md`](docs/operations/cross-machine-resume.md).
-The short rule: same commit, same `manifest.json` bytes, same model/variant/window,
-and a consistent copy of `kg.sqlite`, `runs.sqlite`, `dataset`, and `cache`; one
-writer at a time.
 
 **Starting fresh** (no journal): clone the repository, run `npm ci`, and prepare
 the dataset. A new `manifest.generatedAt` means a new fingerprint, which is
@@ -413,6 +448,10 @@ git diff --cached --stat
 | Model usage limit | The run stops. Rerun the same `kg_build`; do not reset or switch models. |
 | `force after merge is unsafe` | Merge rows exist. Use `reset_all`, not `force`. |
 | `validate-db` reports partial link/status rows | The KG is from an older/partial build. Rebuild clean; do not patch rows by hand. |
+| `bundle was created at commit …` | Check out the tag/commit named in the error; do not edit `identity.json`. |
+| `target already contains build state` | Re-run restore with `--force`; the old state is backed up to `data/.restore-backup-*`. |
+| `bundle … hash does not match identity.json` | The transfer is incomplete or corrupted; re-copy the bundle. |
+| `journal has N running unit(s)` | The build is alive or crashed. Stop it; use `--allow-running` only for crash recovery. |
 | Plugin changes have no effect | Restart OpenCode. |
 | Integrity gate fails | Read the failing check name and detail from the thrown error; fix the pipeline that produced the row, not the check. |
 | Build resumes but repeats a stage | Check whether the repair path fired (missing in-project link or missing global status). That is intentional. |
