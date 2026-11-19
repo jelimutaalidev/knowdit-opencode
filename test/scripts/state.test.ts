@@ -10,7 +10,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir, hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -109,6 +109,13 @@ function makeData(
   return data;
 }
 
+function writeBuildLock(
+  dataDir: string,
+  holder: { pid: number; hostname: string; runId: string; startedAt: string },
+): void {
+  writeFileSync(join(dataDir, ".build.lock"), `${JSON.stringify(holder, null, 2)}\n`);
+}
+
 function gitRepo(root: string, content: string): string {
   mkdirSync(root, { recursive: true });
   writeFileSync(join(root, "file.txt"), content);
@@ -173,6 +180,72 @@ test("snapshot refuses a journal with a running unit unless allowed", () => {
     allowRunning: true,
   });
   assert.equal(identity.journal.units.running, 1);
+});
+
+test("snapshot refuses a live build lock without copying state", () => {
+  const root = tempRoot();
+  const data = makeData(root);
+  const out = join(root, "bundle");
+  writeBuildLock(data, {
+    pid: process.pid,
+    hostname: hostname(),
+    runId: "live-run",
+    startedAt: "2026-11-19T00:00:00.000Z",
+  });
+
+  assert.throws(
+    () => snapshotState({ dataDir: data, outDir: out, repoDir: root }),
+    /build is running|lock/i,
+  );
+  assert.equal(existsSync(out), false);
+});
+
+test("snapshot refuses a build lock owned by another host", () => {
+  const root = tempRoot();
+  const data = makeData(root);
+  const out = join(root, "bundle");
+  writeBuildLock(data, {
+    pid: 1,
+    hostname: "another-machine",
+    runId: "remote-run",
+    startedAt: "2026-11-19T00:00:00.000Z",
+  });
+
+  assert.throws(
+    () => snapshotState({ dataDir: data, outDir: out, repoDir: root }),
+    /another host|lock/i,
+  );
+});
+
+test("snapshot refuses an unreadable build lock", () => {
+  const root = tempRoot();
+  const data = makeData(root);
+  const out = join(root, "bundle");
+  writeFileSync(join(data, ".build.lock"), "not-json\n");
+
+  assert.throws(
+    () => snapshotState({ dataDir: data, outDir: out, repoDir: root }),
+    /unreadable|lock/i,
+  );
+});
+
+test("snapshot proceeds past a stale lock left by a dead process", () => {
+  const root = tempRoot();
+  const data = makeData(root);
+  const out = join(root, "bundle");
+  const child = spawnSync(process.execPath, ["-e", ""]);
+  assert.ok(child.pid, "child process should have a pid");
+  writeBuildLock(data, {
+    pid: child.pid,
+    hostname: hostname(),
+    runId: "dead-run",
+    startedAt: "2026-11-19T00:00:00.000Z",
+  });
+
+  const identity = snapshotState({ dataDir: data, outDir: out, repoDir: root });
+
+  assert.equal(identity.journal.fingerprint, "fp-test");
+  assert.ok(existsSync(join(out, "kg.sqlite")));
 });
 
 test("snapshot refuses to replace an existing bundle unless forced", () => {
@@ -274,6 +347,39 @@ test("restore rejects a tampered bundle before touching the target", () => {
     /dataset|hash|verify/i,
   );
   assert.ok(!existsSync(join(target, "kg.sqlite")));
+});
+
+test("restore refuses to replace state while a build lock is live", () => {
+  const root = tempRoot();
+  const source = makeData(join(root, "source"), { projectName: "new" });
+  const out = join(root, "bundle");
+  snapshotState({ dataDir: source, outDir: out, repoDir: root });
+
+  const target = makeData(join(root, "target"), { projectName: "old" });
+  writeBuildLock(target, {
+    pid: process.pid,
+    hostname: hostname(),
+    runId: "live-run",
+    startedAt: "2026-11-19T00:00:00.000Z",
+  });
+
+  assert.throws(
+    () =>
+      restoreState({
+        fromDir: out,
+        dataDir: target,
+        repoDir: root,
+        force: true,
+      }),
+    /build is running|lock/i,
+  );
+
+  const db = new DatabaseSync(join(target, "kg.sqlite"));
+  try {
+    assert.equal(db.prepare("select name from project").get().name, "old");
+  } finally {
+    db.close();
+  }
 });
 
 test("restore refuses to overwrite state without force and backs it up with force", () => {

@@ -27,7 +27,7 @@ Treat this as a starting checkpoint, then verify against the repository.
 | --- | --- |
 | Branch | `knowdit-kg-phase1` |
 | `PIPELINE_VERSION` | `2026-11-19.p0p1.4` |
-| Test suite | 189/189 passing (`npm test`) |
+| Test suite | 203/203 passing (`npm test`) |
 | Dataset | Prepared, 12 contests, `data/dataset/manifest.json` exists |
 | `data/kg.sqlite` | **Pilot 331 only**, verified clean: 8 semantics, 10 findings (1 High / 4 Medium / 5 Low), 24 in-project links, 0 cross |
 | `data/runs.sqlite` | Pilot journal, 17/17 units done, 0 failed, 0 running, no live writer |
@@ -288,7 +288,7 @@ accurate by review.
 | --- | --- |
 | `knowdit_dataset_prepare` | Snapshot contests and write the manifest (`sourceRoot`, `localIds`) |
 | `knowdit_kg_build` | Build or resume (`c4Ids`, `force`, `resetAll`, `resetReason`) |
-| `knowdit_kg_status` | Dataset readiness, journal units, failures, skipped contests, build-lock state |
+| `knowdit_kg_status` | Dataset readiness, journal units/fingerprint, failures, skipped contests, build-lock state, and the newest snapshot bundle (`snapshot.matchesJournal`) |
 | `knowdit_kg_query` | Query semantics, findings, or links |
 | `knowdit_kg_stats` | Reference-format statistics |
 
@@ -315,15 +315,19 @@ npm run state:snapshot -- --out ~/knowdit-state/checkpoint-01
 npm run state:restore  -- --from ~/knowdit-state/import [--force]
 ```
 
-`state:snapshot` refuses a dirty worktree, a running unit, or an existing
-bundle unless `--allow-dirty`, `--allow-running`, or `--force` is given.
-`--force` replaces only a directory that contains `identity.json`, and the
-output may not overlap `data/`. It writes `identity.json` with the commit,
+`state:snapshot` refuses a dirty worktree, a running unit, a live build lock (on
+this host or another), or an existing bundle unless `--allow-dirty`,
+`--allow-running`, or `--force` is given. `--force` replaces only a directory
+that contains `identity.json`, the output may not overlap `data/`, and it never
+bypasses a live lock. It writes `identity.json` with the commit,
 `PIPELINE_VERSION`, dataset hashes, journal fingerprint/unit counts, and
-artifact hashes. `state:restore` verifies
+artifact hashes. `state:restore` applies the same lock guard, verifies
 every hash and the commit/pipeline identity before touching the target; with
 `--force` the previous state moves to `data/.restore-backup-*` instead of being
-deleted, and a failed copy rolls back. See
+deleted, and a failed copy rolls back. `knowdit_kg_status` reports the newest
+bundle under `~/knowdit-state` (`KNOWDIT_STATE_ROOT` overrides the root;
+`stateRoot` is the test-only dependency) and whether its fingerprint matches the
+live journal. See
 [`docs/operations/cross-machine-resume.md`](docs/operations/cross-machine-resume.md).
 
 ### Compatibility gate
@@ -469,6 +473,9 @@ git diff --cached --stat
 | Build lock refused (`another knowdit build is already running`) | A writer is alive. Wait for it; do not start a second build or delete the lock while that pid lives. |
 | Build lock held by another host | Confirm that machine is stopped, then remove `data/.build.lock`. Never let two hosts write the same state. |
 | Build lock exists but is unreadable | Inspect `data/.build.lock`. If no build is running, remove it and retry. |
+| `state:snapshot` or `state:restore` refuses a live build lock | A writer is alive on this host or another. Wait for it; `--force` never bypasses a live lock. |
+| `state:snapshot` or `state:restore` reports an unreadable lock | Inspect `data/.build.lock`; remove it only when no build is running. |
+| `kg_status` shows `snapshot.matchesJournal: false` | The newest bundle belongs to a different build fingerprint. Capture a fresh snapshot or restore the matching one. Check `snapshot.truncated` before trusting "latest". |
 | `journal has N running unit(s)` | The build is alive or crashed. Stop it; use `--allow-running` only for crash recovery. |
 | Plugin changes have no effect | Restart OpenCode. |
 | Integrity gate fails | Read the failing check name and detail from the thrown error; fix the pipeline that produced the row, not the check. |

@@ -1,12 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tempDb } from "../helpers/db.ts";
+import { openJournal } from "../../.opencode/plugins/knowdit/src/journal.ts";
 import { readStats } from "../../.opencode/plugins/knowdit/src/stats.ts";
 import { registerKnowditTools } from "../../.opencode/plugins/knowdit/src/register.ts";
-import { createProgressReporter } from "../../.opencode/plugins/knowdit/src/tools/handlers.ts";
+import {
+  buildHandlers,
+  createProgressReporter,
+} from "../../.opencode/plugins/knowdit/src/tools/handlers.ts";
 import type { KgDb } from "../../.opencode/plugins/knowdit/src/db/client.ts";
 
 async function seededStats(): Promise<{ db: KgDb }> {
@@ -108,6 +112,120 @@ test("progress reporter writes JSONL and forwards updates to the tool UI", async
   assert.deepEqual(seen, [
     { source: "knowdit", stage: "semantics", detail: "extracting", contest: 453 },
   ]);
+});
+
+async function statusFixture(opts: {
+  currentFingerprint: string;
+  bundleFingerprint: string;
+  createdAt?: string;
+}): Promise<{ data: string; stateRoot: string; bundle: string }> {
+  const root = mkdtempSync(join(tmpdir(), "status-"));
+  const data = join(root, "data");
+  mkdirSync(join(data, "dataset"), { recursive: true });
+  writeFileSync(
+    join(data, "dataset", "manifest.json"),
+    JSON.stringify({
+      generatedAt: "2026-11-19T00:00:00.000Z",
+      contests: [{ c4Id: 331, expected: { high: 1, medium: 4 } }],
+      excluded: [],
+    }),
+  );
+
+  const journal = await openJournal(join(data, "runs.sqlite"));
+  journal.ensureFingerprint(opts.currentFingerprint);
+  journal.done({ stage: "categorize", c4Id: 331, unitIndex: 0 });
+  journal.close();
+
+  const stateRoot = join(root, "knowdit-state");
+  const bundle = join(stateRoot, "fp-test", "stamp");
+  mkdirSync(bundle, { recursive: true });
+  writeFileSync(
+    join(bundle, "identity.json"),
+    JSON.stringify({
+      snapshotVersion: 1,
+      createdAt: opts.createdAt ?? "2026-11-19T00:00:00.000Z",
+      commit: "abc123",
+      pipelineVersion: "2026-11-19.p0p1.4",
+      journal: {
+        fingerprint: opts.bundleFingerprint,
+        units: { total: 1, done: 1, failed: 0, running: 0 },
+      },
+    }),
+  );
+
+  return { data, stateRoot, bundle };
+}
+
+function statusHandlers(data: string, stateRoot: string) {
+  return buildHandlers({
+    dataDir: data,
+    stateRoot,
+    generate: async () => ({ text: "{}" }),
+  });
+}
+
+test("kg_status reports the latest snapshot and a matching journal fingerprint", async () => {
+  const fixture = await statusFixture({
+    currentFingerprint: "fp-current",
+    bundleFingerprint: "fp-current",
+  });
+
+  const result = await statusHandlers(fixture.data, fixture.stateRoot).kg_status({});
+  const content = JSON.parse(result.content) as {
+    journal: { fingerprint: string | null };
+    snapshot: {
+      found: boolean;
+      root: string;
+      latest: { path: string } | null;
+      matchesJournal: boolean | null;
+    };
+  };
+
+  assert.equal(content.journal.fingerprint, "fp-current");
+  assert.equal(content.snapshot.found, true);
+  assert.equal(content.snapshot.root, fixture.stateRoot);
+  assert.equal(content.snapshot.latest?.path, fixture.bundle);
+  assert.equal(content.snapshot.matchesJournal, true);
+});
+
+test("kg_status marks a snapshot from another build as a mismatch", async () => {
+  const fixture = await statusFixture({
+    currentFingerprint: "fp-current",
+    bundleFingerprint: "fp-old",
+  });
+
+  const result = await statusHandlers(fixture.data, fixture.stateRoot).kg_status({});
+  const content = JSON.parse(result.content) as {
+    snapshot: { found: boolean; matchesJournal: boolean | null };
+  };
+
+  assert.equal(content.snapshot.found, true);
+  assert.equal(content.snapshot.matchesJournal, false);
+});
+
+test("kg_status scans KNOWDIT_STATE_ROOT when no stateRoot is passed", async () => {
+  const fixture = await statusFixture({
+    currentFingerprint: "fp-current",
+    bundleFingerprint: "fp-current",
+  });
+  const previous = process.env.KNOWDIT_STATE_ROOT;
+  process.env.KNOWDIT_STATE_ROOT = fixture.stateRoot;
+  try {
+    const handlers = buildHandlers({
+      dataDir: fixture.data,
+      generate: async () => ({ text: "{}" }),
+    });
+    const result = await handlers.kg_status({});
+    const content = JSON.parse(result.content) as {
+      snapshot: { found: boolean; root: string };
+    };
+
+    assert.equal(content.snapshot.root, fixture.stateRoot);
+    assert.equal(content.snapshot.found, true);
+  } finally {
+    if (previous === undefined) delete process.env.KNOWDIT_STATE_ROOT;
+    else process.env.KNOWDIT_STATE_ROOT = previous;
+  }
 });
 
 test("registers all five tools in the knowdit namespace", () => {

@@ -13,7 +13,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import {
   basename,
   dirname,
@@ -25,6 +25,10 @@ import {
 } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { PIPELINE_VERSION } from "../.opencode/plugins/knowdit/src/version.ts";
+import {
+  isProcessAlive,
+  readBuildLock,
+} from "../.opencode/plugins/knowdit/src/pipeline/build-lock.ts";
 
 export const SNAPSHOT_VERSION = 1;
 
@@ -289,6 +293,36 @@ function overlaps(left: string, right: string): boolean {
 }
 
 /**
+ * Copying or replacing build state while a writer owns it would capture a
+ * torn database or pull files out from under the build. The writer's lock is
+ * authoritative: a live local pid, another host, or an unreadable lock is
+ * refused. A stale dead-pid lock on this host is ignored.
+ */
+function assertNoLiveBuild(dataDir: string): void {
+  const lockPath = join(dataDir, ".build.lock");
+  if (!existsSync(lockPath)) return;
+
+  const holder = readBuildLock(lockPath);
+  if (holder === null) {
+    fail(
+      `build lock at ${lockPath} is unreadable; inspect it before touching build state`,
+    );
+  }
+  if (holder.hostname !== hostname()) {
+    fail(
+      `build lock is held by another host: pid ${holder.pid} on ${holder.hostname} ` +
+        `(run ${holder.runId}); stop that build before touching build state`,
+    );
+  }
+  if (isProcessAlive(holder.pid)) {
+    fail(
+      `another knowdit build is running: pid ${holder.pid} (run ${holder.runId}); ` +
+        "wait for it to finish before touching build state",
+    );
+  }
+}
+
+/**
  * Capture a self-contained, verified bundle of the current build state.
  * The output is written atomically and the old bundle is kept until the new
  * one is complete.
@@ -300,6 +334,7 @@ export function snapshotState(options: SnapshotOptions): Identity {
   const includeCache = options.includeCache !== false;
 
   if (!existsSync(dataDir)) fail(`data directory not found: ${dataDir}`);
+  assertNoLiveBuild(dataDir);
   if (overlaps(dataDir, outDir)) {
     fail("snapshot output must not overlap the data directory");
   }
@@ -480,6 +515,7 @@ export function restoreState(options: RestoreOptions): RestoreResult {
   if (overlaps(dataDir, fromDir)) {
     fail("bundle must not overlap the target data directory");
   }
+  assertNoLiveBuild(dataDir);
 
   const identity = readIdentity(fromDir);
   verifyBundle(fromDir, identity);

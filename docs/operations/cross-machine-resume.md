@@ -78,9 +78,12 @@ The script:
 - copies `dataset/` and `cache/`;
 - writes `identity.json` with commit, `PIPELINE_VERSION`, dataset manifest and
   tree hashes, journal fingerprint and unit counts, and KG/journal/cache hashes;
-- refuses to run from a dirty worktree, over a running unit, or over an existing
-  bundle, unless the matching flag is passed (`--allow-dirty`,
-  `--allow-running`, `--force`);
+- refuses to run from a dirty worktree, over a running unit, under a live build
+  lock, or over an existing bundle, unless the matching flag is passed
+  (`--allow-dirty`, `--allow-running`, `--force`);
+- never lets `--force` bypass a live lock: a live pid on this host, a lock owned
+  by another host, and an unreadable lock all fail closed. A dead pid on this
+  host is treated as stale and ignored;
 - only replaces a directory that contains `identity.json`; any other directory
   is refused, and the output may not overlap `data/`.
 
@@ -122,8 +125,9 @@ npm run state:restore -- --from ~/knowdit-state/import
 # add --force when the target already contains build state
 ```
 
-Before touching the target, restore verifies the bundle's KG, journal, dataset,
-and cache hashes against `identity.json`, then checks:
+Before touching the target, restore applies the same live-lock guard as
+`state:snapshot` and verifies the bundle's KG, journal, dataset, and cache
+hashes against `identity.json`, then checks:
 
 - the checked-out commit equals `identity.commit`;
 - `PIPELINE_VERSION` equals `identity.pipelineVersion`;
@@ -151,6 +155,18 @@ counts. Then in OpenCode:
 knowdit_kg_status
 knowdit_kg_build
 ```
+
+`kg_status` also scans `~/knowdit-state` (override with `KNOWDIT_STATE_ROOT`)
+for the newest readable bundle. Confirm:
+
+- `snapshot.found` is `true`;
+- `snapshot.matchesJournal` is `true` (its fingerprint equals the live journal);
+- `snapshot.truncated` is `false` (otherwise the scan stopped before proving it
+  saw every bundle).
+
+There is no pointer file, so a moved or deleted bundle is reported honestly
+instead of leaving a stale path behind. The scan is bounded (depth 4, 200
+bundles) and skips hidden directories and symlinks.
 
 Do not pass `resetAll`, `force`, or a new `resetReason`. Do not change the model
 or effort variant. Done units are skipped, interrupted units are retried, and
@@ -185,8 +201,10 @@ it repairs the new batch without relinking the completed ones.
 | `bundle was created at commit …` | Check out the tag/commit named in the error. Do not rewrite `identity.json`. |
 | `pipeline version … does not match` | The checkout is not the code that produced the bundle. Restore the matching commit. |
 | `journal has N running unit(s)` | The build is alive or crashed. Stop it first; use `--allow-running` only after a crash. |
-| `another knowdit build is already running` | A live writer owns `data/.build.lock`. Wait for it; do not delete the lock while its pid is alive. |
-| Build lock held by another host | Confirm the other machine is stopped, then remove `data/.build.lock` before resuming. |
+| `another knowdit build is already running` | A live writer owns `data/.build.lock`. Wait for it; do not delete the lock while its pid is alive. `state:snapshot` and `state:restore` refuse the same way. |
+| Build lock held by another host | Confirm the other machine is stopped, then remove `data/.build.lock` before resuming. Snapshot and restore also fail closed. |
+| `build lock … is unreadable` | Inspect `data/.build.lock`. If no build is running, remove it and retry; `--force` does not override this check. |
+| `snapshot.matchesJournal` is `false` | The newest bundle was captured under another fingerprint. Take a fresh snapshot from the current state, or restore that bundle and use its identity. |
 | `target already contains build state` | Re-run restore with `--force`; the previous state is backed up first. |
 | `bundle … hash does not match identity.json` | The copy is incomplete or corrupted. Re-transfer from the source machine. |
 | `refusing to replace …: it is not a snapshot bundle` | Pick a different `--out`. `--force` never deletes an unrelated directory. |

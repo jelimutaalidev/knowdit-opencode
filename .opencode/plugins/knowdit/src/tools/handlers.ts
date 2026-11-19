@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { openKg, seedReferenceTables } from "../db/client.ts";
 import { BATCH_LOCAL_IDS } from "../dataset/select.ts";
 import { prepareDataset } from "../dataset/prepare.ts";
@@ -14,6 +14,7 @@ import { buildKg } from "../pipeline/build.ts";
 import { markKnowditProgress } from "../progress-events.ts";
 import { queryFindings, queryLinks, querySemantics } from "../query.ts";
 import type { ToolHandler } from "../register.ts";
+import { findLatestSnapshot } from "../snapshot-info.ts";
 import { readStats } from "../stats.ts";
 
 export type HandlerDeps = {
@@ -23,6 +24,8 @@ export type HandlerDeps = {
   cost?: { input: number; output: number };
   /** Model input window in tokens; sizes extraction chunks like the reference. */
   contextWindow?: number;
+  /** Root scanned for snapshot bundles; defaults to `~/knowdit-state`. */
+  stateRoot?: string;
 };
 
 type JournalUnitRow = {
@@ -35,6 +38,13 @@ type JournalUnitRow = {
   cost_est: number | null;
   error: string | null;
 };
+
+function defaultStateRoot(): string {
+  const override = process.env.KNOWDIT_STATE_ROOT;
+  return override !== undefined && override.trim().length > 0
+    ? resolve(override)
+    : join(homedir(), "knowdit-state");
+}
 
 function paths(dataDir: string) {
   return {
@@ -215,6 +225,7 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
 
       const journal = {
         exists: existsSync(p.journalPath),
+        fingerprint: null as string | null,
         tokensEst: 0,
         costEst: 0,
         units: [] as unknown[],
@@ -225,6 +236,11 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
       if (journal.exists) {
         const jdb = await openKg(p.journalPath);
         try {
+          const fingerprint = jdb.get<{ value: string }>(
+            "select value from journal_meta where key = 'build_fingerprint'",
+          );
+          journal.fingerprint = fingerprint?.value ?? null;
+
           const units = jdb.all<JournalUnitRow>(
             `select c4_id, stage, unit_index, status, attempts, tokens_est, cost_est, error
                from unit_status
@@ -278,8 +294,26 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
         holder: lockPresent ? readBuildLock(p.lockPath) : null,
       };
 
+      const latest = findLatestSnapshot({
+        root: deps.stateRoot ?? defaultStateRoot(),
+      });
+      const snapshot = {
+        ...latest,
+        // Null when either side has no fingerprint to compare.
+        matchesJournal:
+          latest.latest === null ||
+          journal.fingerprint === null ||
+          latest.latest.fingerprint === null
+            ? null
+            : latest.latest.fingerprint === journal.fingerprint,
+      };
+
       return {
-        content: JSON.stringify({ dataset, journal, stats, build }, null, 2),
+        content: JSON.stringify(
+          { dataset, journal, stats, build, snapshot },
+          null,
+          2,
+        ),
       };
     },
 

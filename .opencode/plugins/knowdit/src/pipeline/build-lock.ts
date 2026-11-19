@@ -47,7 +47,7 @@ type AcquireOptions = {
   isAlive?: (pid: number) => boolean;
 };
 
-function defaultIsAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     // Signal 0 checks existence and permission without sending a signal.
@@ -117,7 +117,7 @@ export function acquireBuildLock(path: string, opts: AcquireOptions = {}): Build
     runId: opts.runId ?? randomUUID(),
     startedAt: (opts.now ?? (() => new Date()))().toISOString(),
   };
-  const isAlive = opts.isAlive ?? defaultIsAlive;
+  const isAlive = opts.isAlive ?? isProcessAlive;
 
   mkdirSync(dirname(path), { recursive: true });
 

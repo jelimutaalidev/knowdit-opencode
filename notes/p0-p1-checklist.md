@@ -70,6 +70,16 @@ Status: in progress. TDD for every production change. No rebuild/reset without e
   - [x] Replaced state moves to `data/.restore-backup-*`; a failed copy rolls back
   - [x] CLI snapshot/restore round-trip covered by tests
 - [x] Cross-machine resume guide and `AGENTS.md` §13 use the scripts
+- [x] Snapshot/restore are safe against a live writer
+  - [x] Both refuse a live local pid, a lock owned by another host, and an
+        unreadable lock; `--force` does not bypass any of them
+  - [x] A stale dead-pid lock on the same host is ignored
+- [x] `kg_status` reports the newest bundle without a pointer file
+  - [x] Bounded scan (depth 4, 200 candidates) under `~/knowdit-state` or
+        `KNOWDIT_STATE_ROOT`
+  - [x] Skips hidden directories and symlinks; flags `truncated` when it stops
+  - [x] Falls back to file mtime for an invalid `createdAt`
+  - [x] Reports the journal fingerprint and `snapshot.matchesJournal`
 - [x] Single-writer build lock (`data/.build.lock`)
   - [x] A second build is refused before any journal/KG mutation (pid/host/runId)
   - [x] A lock left by a dead process on the same host is recovered
@@ -79,7 +89,7 @@ Status: in progress. TDD for every production change. No rebuild/reset without e
 
 ## Verification gate
 
-- [x] `npm test` green (189/189)
+- [x] `npm test` green (203/203)
 - [ ] `scripts/verify-compat.ts` green on the full 12-contest rebuild
   - [x] Pilot 331: `compat OK` (8 semantics, 10 findings, 0 duplicates)
   - [ ] Remaining 11 contests: not started
