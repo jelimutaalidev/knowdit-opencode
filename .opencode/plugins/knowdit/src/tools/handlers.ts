@@ -9,6 +9,7 @@ import { openJournal } from "../journal.ts";
 import { fileCache } from "../llm/cache.ts";
 import { createLlmCaller, isModelLimitError } from "../llm/caller.ts";
 import type { GenerateFn, ModelRef } from "../llm/types.ts";
+import { readBuildLock } from "../pipeline/build-lock.ts";
 import { buildKg } from "../pipeline/build.ts";
 import { markKnowditProgress } from "../progress-events.ts";
 import { queryFindings, queryLinks, querySemantics } from "../query.ts";
@@ -42,6 +43,7 @@ function paths(dataDir: string) {
     kgPath: join(dataDir, "kg.sqlite"),
     journalPath: join(dataDir, "runs.sqlite"),
     cacheDir: join(dataDir, "cache"),
+    lockPath: join(dataDir, ".build.lock"),
   };
 }
 
@@ -164,6 +166,7 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
           onProgress: createProgressReporter({ logPath: progressLog, sink: ctx.progress }),
           contextWindow: deps.contextWindow,
           model: deps.model,
+          lockPath: p.lockPath,
           db,
           llm,
           journal,
@@ -267,8 +270,16 @@ export function buildHandlers(deps: HandlerDeps): Record<string, ToolHandler> {
         }
       }
 
+      const lockPresent = existsSync(p.lockPath);
+      const build = {
+        lockPath: p.lockPath,
+        locked: lockPresent,
+        // Null when the lock file is present but unreadable.
+        holder: lockPresent ? readBuildLock(p.lockPath) : null,
+      };
+
       return {
-        content: JSON.stringify({ dataset, journal, stats }, null, 2),
+        content: JSON.stringify({ dataset, journal, stats, build }, null, 2),
       };
     },
 

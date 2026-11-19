@@ -6,6 +6,7 @@ import type { IntegrityReport } from "../integrity.ts";
 import type { Journal } from "../journal.ts";
 import type { LlmCaller, ModelRef } from "../llm/types.ts";
 import { PIPELINE_VERSION } from "../version.ts";
+import { acquireBuildLock } from "./build-lock.ts";
 import { categorizeProject } from "./categorize.ts";
 import { extractFindings } from "./extract-findings.ts";
 import { extractSemantics } from "./extract-semantics.ts";
@@ -29,6 +30,11 @@ export type BuildOptions = {
   contextWindow?: number;
   /** Model identity/effort; part of the journal fingerprint. */
   model?: ModelRef;
+  /**
+   * Single-writer lock file. Defaults to `<dataDir>/.build.lock`; the tool
+   * handler points it at the data root so the dataset snapshot stays clean.
+   */
+  lockPath?: string;
 };
 
 export type BuildResult = {
@@ -273,6 +279,17 @@ function countFindingsMissingInProjectLinks(db: KgDb, c4Id: number): number {
 }
 
 export async function buildKg(opts: BuildDeps): Promise<BuildResult> {
+  // Take the lock before the manifest read or any journal/KG mutation. A
+  // second writer would otherwise interleave extracts and duplicate rows.
+  const lock = acquireBuildLock(opts.lockPath ?? join(opts.dataDir, ".build.lock"));
+  try {
+    return await runBuild(opts);
+  } finally {
+    lock.release();
+  }
+}
+
+async function runBuild(opts: BuildDeps): Promise<BuildResult> {
   const { db, llm, journal } = opts;
   const manifestPath = join(opts.dataDir, "manifest.json");
   if (!existsSync(manifestPath)) {

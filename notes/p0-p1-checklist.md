@@ -70,10 +70,16 @@ Status: in progress. TDD for every production change. No rebuild/reset without e
   - [x] Replaced state moves to `data/.restore-backup-*`; a failed copy rolls back
   - [x] CLI snapshot/restore round-trip covered by tests
 - [x] Cross-machine resume guide and `AGENTS.md` §13 use the scripts
+- [x] Single-writer build lock (`data/.build.lock`)
+  - [x] A second build is refused before any journal/KG mutation (pid/host/runId)
+  - [x] A lock left by a dead process on the same host is recovered
+  - [x] A lock owned by another host is refused; unreadable locks fail closed
+  - [x] A resumed unit reuses rows written before the crash instead of duplicating
+  - [x] `kg_status` reports `build.locked` and the current holder
 
 ## Verification gate
 
-- [x] `npm test` green (178/178)
+- [x] `npm test` green (189/189)
 - [ ] `scripts/verify-compat.ts` green — blocked on a clean rebuild; the
       existing `data/kg.sqlite` predates the fixes and fails Rust `validate-db`
       with partial-link-state rows (126 issues)
@@ -81,3 +87,11 @@ Status: in progress. TDD for every production change. No rebuild/reset without e
       taxonomy gate); 165/165 green after the final version bump, 178/178 with
       the state-transfer tests added
 - [ ] Explicit user approval before rebuild/reset
+
+## Incidents
+
+- 2026-11-19 — Pilot contest 331 was built twice concurrently: the client-side
+  tool abort did not stop the server-side build, and a resume started 81 s
+  later. Both writers extracted before either inserted, so the KG holds 16
+  semantics / 20 findings instead of the expected set. The single-writer lock
+  now prevents this; the pilot must be reset (`force` on 331) and rebuilt.

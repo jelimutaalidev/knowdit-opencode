@@ -171,7 +171,9 @@ it repairs the new batch without relinking the completed ones.
 - After the pilot, build in batches of two or three contests.
 - Snapshot after every batch; do not wait for a quota exhaustion.
 - Keep exactly one machine as the writer. Do not build on both machines against
-  the same state.
+  the same state. `kg_build` enforces this with `data/.build.lock`: it records
+  the pid, host, and run id, refuses a second writer, recovers a dead process on
+  the same host, and refuses a lock owned by another host.
 - Keep at least the last two bundles; format changes are not backward compatible
   and a corrupted copy should not be the only copy.
 - Changing computers preserves progress; it does not reset an account quota.
@@ -183,6 +185,8 @@ it repairs the new batch without relinking the completed ones.
 | `bundle was created at commit …` | Check out the tag/commit named in the error. Do not rewrite `identity.json`. |
 | `pipeline version … does not match` | The checkout is not the code that produced the bundle. Restore the matching commit. |
 | `journal has N running unit(s)` | The build is alive or crashed. Stop it first; use `--allow-running` only after a crash. |
+| `another knowdit build is already running` | A live writer owns `data/.build.lock`. Wait for it; do not delete the lock while its pid is alive. |
+| Build lock held by another host | Confirm the other machine is stopped, then remove `data/.build.lock` before resuming. |
 | `target already contains build state` | Re-run restore with `--force`; the previous state is backed up first. |
 | `bundle … hash does not match identity.json` | The copy is incomplete or corrupted. Re-transfer from the source machine. |
 | `refusing to replace …: it is not a snapshot bundle` | Pick a different `--out`. `--force` never deletes an unrelated directory. |

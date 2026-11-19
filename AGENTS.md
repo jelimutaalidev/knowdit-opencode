@@ -281,7 +281,7 @@ accurate by review.
 | --- | --- |
 | `knowdit_dataset_prepare` | Snapshot contests and write the manifest (`sourceRoot`, `localIds`) |
 | `knowdit_kg_build` | Build or resume (`c4Ids`, `force`, `resetAll`, `resetReason`) |
-| `knowdit_kg_status` | Dataset readiness, journal units, failures, skipped contests |
+| `knowdit_kg_status` | Dataset readiness, journal units, failures, skipped contests, build-lock state |
 | `knowdit_kg_query` | Query semantics, findings, or links |
 | `knowdit_kg_stats` | Reference-format statistics |
 
@@ -293,6 +293,13 @@ Typical build arguments:
 
 On a **fresh machine with no journal**, omit `resetAll`; there is nothing to
 clear. Use it only when an existing journal or KG must be discarded.
+
+`kg_build` holds `data/.build.lock` for the whole run and refuses to start while
+another writer owns it (pid, host, and run id are recorded). A lock left by a
+dead process on the same host is recovered automatically; a lock owned by
+another host must be cleared only after that machine is confirmed stopped.
+Never run two builds against the same `data/`, even in different OpenCode
+sessions.
 
 ### Build-state transfer
 
@@ -363,7 +370,8 @@ Code conventions:
 1. Confirm `notes/p0-p1-checklist.md` has no open P0/P1 item.
 2. Restart OpenCode so the current plugin code is loaded.
 3. Verify the dataset (12 contests; expected totals are 62 High, 99 Medium,
-   and roughly 13.9k core LOC): `knowdit_kg_status`.
+   and roughly 13.9k core LOC): `knowdit_kg_status`. `build.locked` must be
+   false; if it is true, wait for that build or resolve the stale lock first.
 4. If the journal is not empty or the fingerprint is stale, run
    `knowdit_kg_build` with `resetAll: true` and a specific `resetReason`.
    Otherwise omit `resetAll`.
@@ -451,6 +459,9 @@ git diff --cached --stat
 | `bundle was created at commit …` | Check out the tag/commit named in the error; do not edit `identity.json`. |
 | `target already contains build state` | Re-run restore with `--force`; the old state is backed up to `data/.restore-backup-*`. |
 | `bundle … hash does not match identity.json` | The transfer is incomplete or corrupted; re-copy the bundle. |
+| Build lock refused (`another knowdit build is already running`) | A writer is alive. Wait for it; do not start a second build or delete the lock while that pid lives. |
+| Build lock held by another host | Confirm that machine is stopped, then remove `data/.build.lock`. Never let two hosts write the same state. |
+| Build lock exists but is unreadable | Inspect `data/.build.lock`. If no build is running, remove it and retry. |
 | `journal has N running unit(s)` | The build is alive or crashed. Stop it; use `--allow-running` only for crash recovery. |
 | Plugin changes have no effect | Restart OpenCode. |
 | Integrity gate fails | Read the failing check name and detail from the thrown error; fix the pipeline that produced the row, not the check. |
