@@ -16,8 +16,21 @@ export default Plugin.define({
   async setup(ctx) {
     const model = (ctx.options as { model?: ModelRef } | undefined)?.model ?? DEFAULT_MODEL;
     const dataDir = fileURLToPath(new URL("../../../data/", import.meta.url));
-    const info = ctx.model.get(model.providerID, model.id);
-    const contextWindow = info?.limit?.input ?? info?.limit?.context;
+    // OpenCode 2.2.x exposes list/default on the model domain; get() exists only
+    // on the editor passed to ctx.model.transform. Model inventory may also be
+    // unavailable at startup, so a failed lookup must not block tool registration.
+    let contextWindow: number | undefined;
+    try {
+      const models = await ctx.model.list();
+      const info = models.data.find(
+        (candidate) =>
+          candidate.providerID === model.providerID &&
+          (candidate.modelID === model.id || candidate.id === model.id),
+      );
+      contextWindow = info?.limit?.input ?? info?.limit?.context;
+    } catch {
+      contextWindow = undefined;
+    }
 
     await ctx.tool.transform((editor) => {
       registerKnowditTools(
