@@ -80,9 +80,9 @@ Status: in progress. TDD for every production change. No rebuild/reset without e
 ## Verification gate
 
 - [x] `npm test` green (189/189)
-- [ ] `scripts/verify-compat.ts` green — blocked on a clean rebuild; the
-      existing `data/kg.sqlite` predates the fixes and fails Rust `validate-db`
-      with partial-link-state rows (126 issues)
+- [ ] `scripts/verify-compat.ts` green on the full 12-contest rebuild
+  - [x] Pilot 331: `compat OK` (8 semantics, 10 findings, 0 duplicates)
+  - [ ] Remaining 11 contests: not started
 - [x] Focused re-audit complete — 3 findings fixed (candidate order, repair echoes,
       taxonomy gate); 165/165 green after the final version bump, 178/178 with
       the state-transfer tests added

@@ -27,23 +27,30 @@ Treat this as a starting checkpoint, then verify against the repository.
 | --- | --- |
 | Branch | `knowdit-kg-phase1` |
 | `PIPELINE_VERSION` | `2026-11-19.p0p1.4` |
-| Test suite | 178/178 passing (`npm test`) |
+| Test suite | 189/189 passing (`npm test`) |
 | Dataset | Prepared, 12 contests, `data/dataset/manifest.json` exists |
-| `data/kg.sqlite` | **Empty** (full reset executed) |
-| `data/runs.sqlite` | **Empty journal**, no build fingerprint, reset reason recorded |
-| `data/cache`, `data/llm-scratch`, `data/tmp`, `data/progress.log` | Cleared |
-| Rebuild | **Not started** — requires explicit user approval |
-| `scripts/verify-compat.ts` | Blocked until a clean rebuild produces a valid KG |
+| `data/kg.sqlite` | **Pilot 331 only**, verified clean: 8 semantics, 10 findings (1 High / 4 Medium / 5 Low), 24 in-project links, 0 cross |
+| `data/runs.sqlite` | Pilot journal, 17/17 units done, 0 failed, 0 running, no live writer |
+| `data/cache` | Present; pilot model responses cached |
+| Rebuild | Pilot verified; remaining 11 contests **not started** |
+| `scripts/verify-compat.ts` | **`compat OK`** on the pilot KG |
+| Pilot tag | `phase1-pilot-331` → `94f8a56` |
+| Pilot snapshot | `~/knowdit-state/fp-pipeline:202/2026-11-19T04-53-53-735Z` |
 | Git remote | `origin` → `github.com/jelimutaalidev/knowdit-opencode` |
-| Working tree | Clean at the Phase 1 baseline commit; branch pushed |
+| Working tree | Clean; branch pushed |
 
-Recorded reset reason:
+Recorded reset reason (historical full reset):
 
 ```
 operator-approved full reset before clean 12-contest rebuild (2026-11-19)
 ```
 
-Do not reset again, and do not start `knowdit_kg_build`, unless the user asks.
+The pilot itself was force-reset (contest 331 only) and rebuilt clean on
+2026-11-19 after an earlier concurrent double build; see the incident note in
+`notes/p0-p1-checklist.md`.
+
+Do not reset again, and do not build the remaining contests, unless the user
+asks.
 
 Completed quality work is tracked in `notes/p0-p1-checklist.md` (P0, P1, P2 all
 checked). The design spec is
@@ -469,8 +476,10 @@ git diff --cached --stat
 
 ## 16. Open items
 
-- [ ] User approval to start the clean 12-contest rebuild.
-- [ ] `scripts/verify-compat.ts` green on the rebuilt KG.
+- [x] Pilot contest 331 reset and rebuilt clean; tag `phase1-pilot-331`.
+- [x] `scripts/verify-compat.ts` green on the pilot KG (`compat OK`).
+- [ ] User approval to build the remaining 11 contests.
+- [ ] `scripts/verify-compat.ts` green on the full 12-contest KG.
 - [ ] Optional P2: align platform IDs with the reference dataset folder.
 - [ ] Optional: expose contest skipping in the tool schema with tests.
 - [ ] Git remote/commit/push decisions (owner).
