@@ -124,6 +124,8 @@ data/                        Runtime artifacts (gitignored)
 ## Documentation
 
 - [`AGENTS.md`](AGENTS.md) — operating manual, rules, runbook, handoff guide
+- [`docs/operations/cross-machine-resume.md`](docs/operations/cross-machine-resume.md)
+  — snapshot, transfer, and resume an interrupted build on another machine
 - [`docs/superpowers/specs/2026-11-17-knowdit-kg-phase1-design.md`](docs/superpowers/specs/2026-11-17-knowdit-kg-phase1-design.md)
   — Phase 1 design and acceptance criteria
 - [`docs/superpowers/plans/2026-11-17-knowdit-kg-phase1.md`](docs/superpowers/plans/2026-11-17-knowdit-kg-phase1.md)
@@ -136,6 +138,9 @@ data/                        Runtime artifacts (gitignored)
 
 - `data/` is generated and gitignored. It contains the dataset snapshot, SQLite
   databases, response cache, and progress logs; never commit it.
+- To resume a build on another machine, copy the `data/` build state exactly and
+  do not run `dataset_prepare` first; see the
+  [cross-machine resume guide](docs/operations/cross-machine-resume.md).
 - A full reset destroys cross-contest provenance. Do not reset or rebuild
   without an explicit decision.
 - Model usage-limit errors stop the run by design. Rerun the same build to

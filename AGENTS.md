@@ -34,7 +34,8 @@ Treat this as a starting checkpoint, then verify against the repository.
 | `data/cache`, `data/llm-scratch`, `data/tmp`, `data/progress.log` | Cleared |
 | Rebuild | **Not started** — requires explicit user approval |
 | `scripts/verify-compat.ts` | Blocked until a clean rebuild produces a valid KG |
-| Git remote | None configured; working tree is uncommitted |
+| Git remote | `origin` → `github.com/jelimutaalidev/knowdit-opencode` |
+| Working tree | Clean at the Phase 1 baseline commit; branch pushed |
 
 Recorded reset reason:
 
@@ -357,16 +358,19 @@ reproducible from cache at `concurrency = 1`.
 
 ## 13. Moving to another computer
 
-The repository is portable; the generated data is not.
+Two branches; do not mix them.
 
-1. Push the branch (or copy the whole worktree including untracked code, but not
-   `data/`).
-2. On the new machine: install Node 24+, `npm ci`, and clone the Rust reference.
-3. Restart OpenCode after cloning/updating this repo so the plugin reloads.
-4. Provide the external dataset at `~/c4-data/out_train` or pass `sourceRoot`.
-5. Run `knowdit_dataset_prepare` and confirm 12 contests. A new
-   `generatedAt` means a new fingerprint; that is expected on a fresh journal.
-6. Continue development with `npm test`, or start the build using §12.
+**Resuming an interrupted build** (a journal already exists): transfer the exact
+build state; never run `dataset_prepare`. Full procedure, commands, and identity
+checks are in
+[`docs/operations/cross-machine-resume.md`](docs/operations/cross-machine-resume.md).
+The short rule: same commit, same `manifest.json` bytes, same model/variant/window,
+and a consistent copy of `kg.sqlite`, `runs.sqlite`, `dataset`, and `cache`; one
+writer at a time.
+
+**Starting fresh** (no journal): clone the repository, run `npm ci`, and prepare
+the dataset. A new `manifest.generatedAt` means a new fingerprint, which is
+expected when there is no history to preserve.
 
 Path overrides (no machine-specific paths are required):
 
@@ -394,10 +398,11 @@ git diff --cached --stat
   whole-file diff is expected after a rebuild.
 - Use clear, conventional commit subjects (the history uses `feat:`, `fix:`,
   `test:`, `docs:`).
-- No remote is configured. The owner decides the remote, visibility, and
-  whether to push. Do not force-push or rewrite published history.
-- A short `README.md` that links here would be appropriate for a professional
-  public repository; it is not required for the build.
+- `origin` points to `github.com/jelimutaalidev/knowdit-opencode`. The repository
+  is public and the default branch is `knowdit-kg-phase1`; the owner may switch
+  the default to `main` as phases accumulate.
+- Push only verified commits. Do not force-push or rewrite published history.
+- `README.md` is the public entry point; keep it and this file consistent.
 
 ## 15. Troubleshooting
 
