@@ -19,7 +19,7 @@ knowledge graph** described in `KNOWDIT-agentic-smart-contract-vulnerability.md`
 Phase 1 scope is fixed: 12 contests, High/Medium/Low report sections only, no
 Gas/Optimization extraction, no Phase 2 consumer features.
 
-## 2. Current state (2026-11-19)
+## 2. Current state (2026-11-21)
 
 Treat this as a starting checkpoint, then verify against the repository.
 
@@ -27,17 +27,18 @@ Treat this as a starting checkpoint, then verify against the repository.
 | --- | --- |
 | Branch | `knowdit-kg-phase1` |
 | `PIPELINE_VERSION` | `2026-11-19.p0p1.4` |
-| Test suite | 203/203 passing (`npm test`) |
+| Test suite | 205/205 passing (`npm test`) |
 | Dataset | Prepared, 12 contests, `data/dataset/manifest.json` exists |
-| `data/kg.sqlite` | **Pilot 331 only**, verified clean: 8 semantics, 10 findings (1 High / 4 Medium / 5 Low), 24 in-project links, 0 cross |
-| `data/runs.sqlite` | Pilot journal, 17/17 units done, 0 failed, 0 running, no live writer |
-| `data/cache` | Present; pilot model responses cached |
-| Rebuild | Pilot verified; remaining 11 contests **not started** |
-| `scripts/verify-compat.ts` | **`compat OK`** on the pilot KG |
+| `data/kg.sqlite` | **Full 12-contest KG**, integrity gate 10/10: 111 semantics (106 canonical), 259 findings (249 canonical), 641 links (552 in-project, 89 cross), all 259 findings have a link status |
+| `data/runs.sqlite` | 321/321 units done, 0 failed, 0 running, no live writer |
+| `data/cache` | Present; model responses for all 12 contests cached |
+| Rebuild | **Complete** — pilot 331, then batches `[453,316]`, `[326,305,286]`, `[361,355,322]`, `[332,428,367]`, then one whole-manifest resume |
+| `scripts/verify-compat.ts` | **`compat OK`** on the full 12-contest KG |
 | Pilot tag | `phase1-pilot-331` → `94f8a56` |
 | Pilot snapshot | `~/knowdit-state/fp-pipeline:202/2026-11-19T04-53-53-735Z` |
+| Full snapshot | `~/knowdit-state/phase1-full-12` (12 contests, 321/321 units) |
 | Git remote | `origin` → `github.com/jelimutaalidev/knowdit-opencode` |
-| Working tree | Clean; branch pushed |
+| Working tree | Docs updated for the completed build; source unchanged |
 
 Recorded reset reason (historical full reset):
 
@@ -49,8 +50,8 @@ The pilot itself was force-reset (contest 331 only) and rebuilt clean on
 2026-11-19 after an earlier concurrent double build; see the incident note in
 `notes/p0-p1-checklist.md`.
 
-Do not reset again, and do not build the remaining contests, unless the user
-asks.
+Do not reset or rebuild unless the user asks. The 12-contest build is complete;
+treat `data/` as the artifact to preserve and verify, not as scratch space.
 
 Completed quality work is tracked in `notes/p0-p1-checklist.md` (P0, P1, P2 all
 checked). The design spec is
@@ -173,6 +174,13 @@ Resume behavior:
 - A done `global` unit is re-run if findings still lack a `finding_link_status`
   row.
 - `finalize` is re-run whenever any unit actually ran in the current invocation.
+
+Resume a partially finished batch by running the **whole manifest** (omit
+`c4Ids`). Global repair is scoped to the contests you request, but `finalize`
+checks the whole KG: resuming only the pending contest can leave findings from
+earlier contests in the same batch without a global-link status and fail
+`links_have_status`. The whole-manifest run skips every done unit and repairs
+only what is missing, so it is the safe default after a crash or abort.
 - `force` resets selected contests **only before merge rows exist**. After a
   merge, `force` is rejected; use `reset_all`.
 
@@ -340,6 +348,9 @@ node scripts/verify-compat.ts --db data/kg.sqlite
 It runs the reference `learn ... validate-db` (must exit 0), `db snapshot`
 (must write valid JSON), and compares the `KgStats` subset against `readStats`.
 This is the strongest acceptance test. It cannot pass on an empty or partial KG.
+It validates a `VACUUM INTO` copy in a temp directory, so the database you point
+at is never modified; this matters when verifying a snapshot bundle, whose bytes
+`identity.json` hashes.
 
 ### Schema re-vendoring
 
@@ -485,10 +496,17 @@ git diff --cached --stat
 
 - [x] Pilot contest 331 reset and rebuilt clean; tag `phase1-pilot-331`.
 - [x] `scripts/verify-compat.ts` green on the pilot KG (`compat OK`).
-- [ ] User approval to build the remaining 11 contests.
-- [ ] `scripts/verify-compat.ts` green on the full 12-contest KG.
+- [x] Full 12-contest KG built without a reset; integrity gate 10/10.
+- [x] `scripts/verify-compat.ts` green on the full 12-contest KG.
+- [x] Final 12-contest snapshot: `~/knowdit-state/phase1-full-12`.
+- [x] Post-build audit recorded in `notes/p0-p1-checklist.md`.
 - [ ] Optional P2: align platform IDs with the reference dataset folder.
 - [ ] Optional: expose contest skipping in the tool schema with tests.
+- [ ] Optional: one duplicate extraction remains (finding 473 repeats C4-367
+      `[M-05]`; the merge stage kept both). Fixing it changes persisted content
+      and needs a `PIPELINE_VERSION` bump plus a rebuild.
+- [ ] Optional: tighten the cross-project merge decision (8 of 10 edges merge
+      same-class, not same-bug findings). Same bump/rebuild requirement.
 - [ ] Git remote/commit/push decisions (owner).
 
 When in doubt: verify against the Rust source, write the failing test first, and

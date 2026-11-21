@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { openKg } from "../.opencode/plugins/knowdit/src/db/client.ts";
 import { readStats, type KgStatsSubset } from "../.opencode/plugins/knowdit/src/stats.ts";
+import { backupSqlite } from "./state.ts";
 
 type Expectation = {
   field: keyof KgStatsSubset;
@@ -105,7 +106,16 @@ if (!existsSync(binary)) {
   fail(`reference binary not found at ${binary}; pass --binary or set KNOWDIT_BINARY`);
 }
 
-const databaseUrl = `sqlite://${dbPath}?mode=rwc`;
+// The reference validator opens the database read-write (WAL mode + header
+// rewrite), and openKg applies the schema. Both mutate the file without
+// changing any row, so validating the caller's file directly would corrupt a
+// snapshot bundle's identity hashes. Work on a consistent copy instead.
+const scratchDir = mkdtempSync(join(tmpdir(), "knowdit-compat-"));
+process.on("exit", () => rmSync(scratchDir, { recursive: true, force: true }));
+const copyPath = join(scratchDir, "kg.sqlite");
+backupSqlite(dbPath, copyPath);
+
+const databaseUrl = `sqlite://${copyPath}?mode=rwc`;
 
 const validateOutput = run(binary, [
   "learn",
@@ -114,7 +124,6 @@ const validateOutput = run(binary, [
   "validate-db",
 ]);
 
-const scratchDir = mkdtempSync(join(tmpdir(), "knowdit-compat-"));
 const snapshotPath = join(scratchDir, "snapshot.json");
 
 try {
@@ -136,10 +145,12 @@ try {
     fail("db snapshot output is not valid JSON");
   }
 } finally {
-  rmSync(scratchDir, { recursive: true, force: true });
+  // Keep the database copy: readStats still needs it. The exit handler above
+  // removes the whole scratch directory.
+  rmSync(snapshotPath, { force: true });
 }
 
-const db = await openKg(dbPath);
+const db = await openKg(copyPath);
 let actual: KgStatsSubset;
 try {
   actual = readStats(db);

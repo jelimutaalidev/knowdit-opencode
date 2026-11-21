@@ -86,20 +86,104 @@ Status: in progress. TDD for every production change. No rebuild/reset without e
   - [x] A lock owned by another host is refused; unreadable locks fail closed
   - [x] A resumed unit reuses rows written before the crash instead of duplicating
   - [x] `kg_status` reports `build.locked` and the current holder
+- [x] Global-link progress counts only finished findings
+  - [x] Batch `start` events no longer report `position - 1`
+  - [x] `done`/`failed` each advance the bar exactly once
+  - [x] Covered by `test/pipeline/build.test.ts` (3 findings: starts 0/0/0,
+        finishes 1/2/3)
 
 ## Verification gate
 
-- [x] `npm test` green (203/203)
-- [ ] `scripts/verify-compat.ts` green on the full 12-contest rebuild
+- [x] `npm test` green (205/205)
+- [x] `scripts/verify-compat.ts` green on the full 12-contest rebuild
   - [x] Pilot 331: `compat OK` (8 semantics, 10 findings, 0 duplicates)
-  - [ ] Remaining 11 contests: not started
+  - [x] Full 12 contests: `compat OK` (111 semantics / 106 canonical, 259
+        findings / 249 canonical, 641 links: 552 in-project + 89 cross, all 259
+        findings have a link status)
+  - [x] Validator runs against a temporary copy, so the input database keeps its
+        bytes (a previous run rewrote the snapshot bundle's header/WAL state and
+        invalidated `identity.json` until the bundle was re-captured)
+- [x] Integrity gate 10/10 on the full KG; journal 321/321 units done
+- [x] Final snapshot captured: `~/knowdit-state/phase1-full-12`
 - [x] Focused re-audit complete — 3 findings fixed (candidate order, repair echoes,
       taxonomy gate); 165/165 green after the final version bump, 178/178 with
       the state-transfer tests added
-- [ ] Explicit user approval before rebuild/reset
+- [x] No reset used for the 12-contest build; every stage resumed from the journal
+
+## Post-build audit (2026-11-21)
+
+Read-only layered audit of `data/kg.sqlite` and the snapshot bundle. Every check
+below was run against the live KG and the bundle.
+
+Structural checks (all pass):
+
+- `pragma integrity_check` and `foreign_key_check` clean on both SQLite files.
+- Journal: 321/321 units `done`, 0 failed, 0 running; `60 + 259 + 2` unit
+  reconciliation; fingerprint equals manifest + pipeline + window + model.
+- 12 projects; every project has categories, semantics, and findings; platform
+  IDs match the manifest.
+- No orphan rows, no self-merge, no merge chains; folded findings carry only
+  in-project links (22 rows, 0 cross-project).
+- Canonical accounting: 111 − 5 = 106 semantics, 259 − 10 = 249 findings.
+- Links: 641 = 552 in-project + 89 cross; every link has evidence; every finding
+  has an in-project link; all 10 High cross-project links have ≥25-char evidence.
+- Content: no empty/thin rows, every semantic has a function, no duplicate
+  canonical titles or semantic names.
+- Snapshot bundle hashes match `identity.json` for KG, journal, cache, and the
+  dataset tree; bundle content is logically identical to the live KG; the
+  recorded commit is the checked-out commit.
+
+Report reconciliation:
+
+- High: 62/62 exactly. Per contest, High matches for all 12 contests once
+  cross-project merge provenance is accounted for.
+- Medium: 100 vs 99 expected. Cause: finding 473 is a second extraction of
+  C4-367 `[M-05]` (finding 472 carries the same root cause and links); the merge
+  stage kept both. 160/161 report `[H-xx]`/`[M-xx]` headings map one-to-one to a
+  KG finding; 473 is the only extra.
+- Low: 97 rows. Low/Non-Critical sections are not one-to-one in scope: reports
+  include `[L-xx]`, `[NN]`, and `[N-xx]` items, and extraction kept a subset.
+  This is a coverage choice, not a reference break (compat gate passes).
+
+Known quality warnings (not integrity failures, no reset needed):
+
+- 8 of 106 canonical semantics have no finding link. Semantics are DeFi
+  mechanism semantics by design, so a mechanism with no submitted finding is
+  legitimate.
+- 10 cross-project finding merge edges. Two are same-codebase duplicates
+  (Canto/Neobase LendingLedger). The other eight merge same-class findings from
+  different protocols (e.g. three "missing deadline/slippage" findings folded
+  into the Kelp `[M-02]` canonical). Provenance rows are retained in
+  `project_finding` and `finding_merge`, so no data is lost, but canonical
+  titles become broader than the source finding. A future prompt/dedup pass
+  should tighten the merge decision; it would need a `PIPELINE_VERSION` bump and
+  a rebuild.
+- `contest_status` is empty because no contest was skipped; the snapshot
+  identity therefore reports `contests: 0`. Cosmetic only.
 
 ## Incidents
 
+- 2026-11-21 — `verify-compat.ts` used to open and validate the caller's
+  database in place. The reference validator opens it read-write (WAL mode +
+  header change counter) and `openKg` applies the schema, so a successful run
+  changed the file bytes without changing any row. Running it against the
+  finished snapshot bundle invalidated the KG hash in `identity.json`. The
+  script now validates a `VACUUM INTO` copy in a temp directory and removes it
+  on exit; a regression test asserts the input bytes are unchanged and that the
+  reference binary never sees the original path. The bundle was re-captured from
+  the live KG and reproduces the original hash `6e6ce5eb…` exactly.
+- 2026-11-21 — Merge validation compares `new_finding_title` /
+  `new_semantic_name` exactly (lowercase + trim), matching the Rust tool
+  contract. The model occasionally paraphrases a title instead of copying it
+  (`kerosine` → `kerosene`, or dropping an article), which rejects the whole
+  merge chunk. Successful chunks are cached, so rerunning regenerates only the
+  failing chunk and eventually lands an exact copy. If this recurs often, fix it
+  with a deliberate prompt/validation change and a `PIPELINE_VERSION` bump — not
+  by hand-editing rows mid-build.
+- 2026-11-21 — Resuming batch 4 with only `[367]` could not repair the 47
+  findings already built in 332/428: global repair is scoped to the requested
+  contests while `finalize` checks the whole KG. Running the whole manifest
+  (no `c4Ids`) repaired them and passed `links_have_status` without a reset.
 - 2026-11-19 — Pilot contest 331 was built twice concurrently: the client-side
   tool abort did not stop the server-side build, and a resume started 81 s
   later. Both writers extracted before either inserted, so the KG holds 16
