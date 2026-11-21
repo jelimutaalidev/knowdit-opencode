@@ -502,11 +502,12 @@ git diff --cached --stat
 - [x] Post-build audit recorded in `notes/p0-p1-checklist.md`.
 - [ ] Optional P2: align platform IDs with the reference dataset folder.
 - [ ] Optional: expose contest skipping in the tool schema with tests.
-- [ ] Optional: one duplicate extraction remains (finding 473 repeats C4-367
-      `[M-05]`; the merge stage kept both). Fixing it changes persisted content
-      and needs a `PIPELINE_VERSION` bump plus a rebuild.
-- [ ] Optional: tighten the cross-project merge decision (8 of 10 edges merge
-      same-class, not same-bug findings). Same bump/rebuild requirement.
+- [ ] Merge-quality backlog (deferred by the owner 2026-11-21): one duplicate
+      extraction (finding 473 repeats C4-367 `[M-05]`) and 8 over-broad
+      cross-project merges. Evidence, repro queries, and fix options are in
+      [`notes/known-issues-merge-quality.md`](notes/known-issues-merge-quality.md).
+      Any fix changes persisted content and needs a `PIPELINE_VERSION` bump plus
+      a rebuild; do not hand-edit the current KG.
 - [ ] Git remote/commit/push decisions (owner).
 
 When in doubt: verify against the Rust source, write the failing test first, and

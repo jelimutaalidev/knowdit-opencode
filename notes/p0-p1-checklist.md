@@ -161,6 +161,11 @@ Known quality warnings (not integrity failures, no reset needed):
 - `contest_status` is empty because no contest was skipped; the snapshot
   identity therefore reports `contests: 0`. Cosmetic only.
 
+The two content-quality defects (duplicate extraction 473 and over-broad
+cross-project merges) are deferred by the owner so the current KG can be tested
+first. Evidence, reproduction queries, and fix options are recorded in
+[`known-issues-merge-quality.md`](known-issues-merge-quality.md).
+
 ## Incidents
 
 - 2026-11-21 — `verify-compat.ts` used to open and validate the caller's
