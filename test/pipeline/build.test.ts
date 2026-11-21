@@ -231,3 +231,34 @@ test("resetContest removes only that contest's rows", async () => {
   resetContest(deps.db, 229);
   assert.equal(deps.db.get<{ n: number }>("select count(*) n from project")!.n, 1);
 });
+
+test("global-link progress stays at zero until findings actually finish", async () => {
+  const updates: Record<string, unknown>[] = [];
+  const { deps } = await fakeBuild({ contests: [229, 71, 101] });
+
+  await buildKg({
+    ...deps,
+    onProgress: (update) => {
+      updates.push(update);
+    },
+  });
+
+  const global = updates.filter((update) => update.stage === "global");
+  const starts = global.filter((update) => /^Linking finding \d+\//.test(String(update.detail)));
+  const finishes = global.filter((update) =>
+    /^(Linked|Failed) finding \d+\//.test(String(update.detail)),
+  );
+
+  assert.equal(starts.length, 3);
+  assert.equal(finishes.length, 3);
+  // A start event only announces work; it must not claim any completed links.
+  assert.deepEqual(
+    starts.map((update) => update.completed),
+    [0, 0, 0],
+  );
+  // Only terminal events advance the bar, one finding at a time.
+  assert.deepEqual(
+    finishes.map((update) => update.completed),
+    [1, 2, 3],
+  );
+});

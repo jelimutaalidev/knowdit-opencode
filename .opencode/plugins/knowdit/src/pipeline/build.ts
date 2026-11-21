@@ -434,9 +434,15 @@ async function runBuild(opts: BuildDeps): Promise<BuildResult> {
   const missingGlobalStatus = countFindingsMissingGlobalStatus(db, active);
   const repairingGlobal = journal.isDone(globalUnit) && missingGlobalStatus > 0;
 
+  // Findings that have actually been decided. Start events announce work for a
+  // whole batch up front, so using the batch position would make the bar jump
+  // to N-1 before a single link was written.
+  let globalProcessed = 0;
+
   const globalProgress: ProgressFn = async (update) => {
     const event = update.event;
     if (event === "global_start") {
+      globalProcessed = 0;
       await emit({
         title: "KNOWDIT global link",
         stage: "global",
@@ -451,6 +457,7 @@ async function runBuild(opts: BuildDeps): Promise<BuildResult> {
       const position = Number(update.index);
       const total = Number(update.total);
       const status = String(update.status);
+      if (status === "done" || status === "failed") globalProcessed += 1;
       await emit({
         title: "KNOWDIT global link",
         stage: "global",
@@ -462,7 +469,7 @@ async function runBuild(opts: BuildDeps): Promise<BuildResult> {
             : status === "failed"
               ? `Failed finding ${position}/${total} · C4 ${update.c4Id}: ${update.error}`
               : `Linking finding ${position}/${total} · C4 ${update.c4Id}`,
-        completed: status === "done" ? position : Math.max(0, position - 1),
+        completed: globalProcessed,
         total,
       });
       return;
